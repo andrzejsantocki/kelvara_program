@@ -170,6 +170,12 @@ test("wallet avatar opens explicit connect and disconnect controls",()=>{
  assert.match(app,/toggleWalletMenu/);assert.match(app,/disconnectWallet/);assert.match(app,/\.disconnect\(\)/);assert.match(app,/aria-expanded/);
 });
 
+test("disconnected header button opens wallet selector without duplicate account menu",()=>{
+ const root=new URL("../",import.meta.url),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ assert.match(app,/function openWalletControl\(\)\{if\(!walletAddress\)return connect\(\);toggleWalletMenu\(\)}/);
+ assert.match(app,/\$\("#wallet-chip"\)\.onclick=.*openWalletControl\(\)/);
+});
+
 test("wallet selector uses local wallet marks and a structured connection state",()=>{
  const root=new URL("../",import.meta.url),html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),css=readFileSync(new URL("subapps/kamino-monitor/web/styles.css",root),"utf8"),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  for(const wallet of ["phantom","solflare","backpack"]){assert.match(html,new RegExp(`/assets/wallets/${wallet}\\.svg`));assert.equal(existsSync(new URL(`subapps/kamino-monitor/web/assets/wallets/${wallet}.svg`,root)),true)}

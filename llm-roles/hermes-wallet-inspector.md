@@ -20,6 +20,12 @@ Other agents: do not modify these files without first recording a coordination n
 
 ## Phase log
 
+### Direct header wallet connection — 2026-09-27
+
+Owned files: `subapps/kamino-monitor/web/app.js`, focused UI test, and this note.
+
+Status: completed. When disconnected, the header `Connect wallet` button opens the wallet selector directly. The account menu appears only after a wallet/address exists. Focused test passed; full suite 201/201; syntax checks passed.
+
 ### Wallet-connect authentication timing — 2026-09-27
 
 Owned files: `subapps/kamino-monitor/{protection.js,web/app.js}`, focused tests, and this coordination note.
