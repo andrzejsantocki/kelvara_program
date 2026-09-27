@@ -6,7 +6,7 @@ import { join } from "node:path";
 import nacl from "tweetnacl";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { createProtectionStore, createWalletAuth, exactShareBytes, runFeeLadder } from "../subapps/kamino-monitor/protection.js";
-import { buildArmedVariants, createKaminoMonitorServer } from "../subapps/kamino-monitor/server.js";
+import { buildArmedVariants, createKaminoMonitorServer, KAMINO } from "../subapps/kamino-monitor/server.js";
 import { once } from "node:events";
 
 const WALLET="883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
@@ -78,6 +78,7 @@ test("protection UI exposes nonce setup, armed count, fast close, and revoke",as
  const root=new URL("../",import.meta.url),html=await readFile(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),app=await readFile(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  for(const text of ["Arm protection","armed transactions","Fast close","Revoke protection","durable nonce"])assert.match(html,new RegExp(text,"i"));
  for(const contract of ["signAllTransactions","/api/protection/prepare","/api/protection/arm","/api/protection/fast-close","/api/protection/revoke","kelvara_pending_nonce_accounts"])assert.match(app,new RegExp(contract.replaceAll("/","\\/")));
+ assert.ok(app.includes("activateMonitoring({loadProtection:false})"));
  for(const binding of ['$("#arm-protection").onclick=armProtection','$("#fast-close").onclick=fastClose','$("#revoke-protection").onclick=revokeProtection'])assert.match(app,new RegExp(binding.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
 });
 
@@ -95,6 +96,7 @@ test("arming API requires wallet authentication and stores three signed variants
  try{const challenge=await(await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString()})})).json();const signature=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64");const session=await(await fetch(`${base}/api/auth/verify`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString(),message:challenge.message,signature})})).json();
   const unauthorized=await fetch(`${base}/api/protection/status`);assert.equal(unauthorized.status,401);
   const variants=[10,50,100].map((fee,index)=>({signature:`sig${index}`,signedTransaction:`tx${index}`,priorityMicroLamports:fee}));const armed=await(await fetch(`${base}/api/protection/arm`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${session.token}`},body:JSON.stringify({nonceAccount:WALLET,nonceValue:"nonce",shares:"0.1",variants})})).json();assert.equal(armed.armedCount,3);
-  const status=await(await fetch(`${base}/api/protection/status`,{headers:{authorization:`Bearer ${session.token}`}})).json();assert.equal(status.armedCount,3);assert.equal(status.variants[0].signedTransaction,undefined);
+  const status=await(await fetch(`${base}/api/protection/status`,{headers:{authorization:`Bearer ${session.token}`}})).json();assert.equal(status.armedCount,3);assert.equal(status.variants[0].signedTransaction,undefined);assert.equal(status.monitoring.active,true);assert.equal(status.monitoring.consentSource,"durable_nonce_bundle_signature");assert.equal(status.monitoring.network,"mainnet");
+  const stored=await store.get(keypair.publicKey.toString());assert.equal(stored.monitoring.active,true);assert.equal(stored.monitoring.protocol,"Kamino Earn");assert.equal(stored.monitoring.vault,KAMINO.vault);
  }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
 });
