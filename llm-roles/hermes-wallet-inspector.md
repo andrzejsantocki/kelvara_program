@@ -20,6 +20,14 @@ Other agents: do not modify these files without first recording a coordination n
 
 ## Phase log
 
+### Phase 7 admin-rule backend — 2026-09-27
+
+Owned files: `subapps/kamino-monitor/server.js`, `test/kamino-monitor.test.js`, and `subapps/kamino-monitor/BACKEND-HANDOFF.md`. Preserve unrelated wallet-selector changes already present in the first two files.
+
+Scope: implement deterministic rules for (1) verifying every relevant admin identity and (2) detecting an admin rollover lacking a matching approved pre-announcement. Add independent control-plane polling and additive API fields; do not modify UI files.
+
+Status: implemented. Focused Kamino suite 31/31, full repository suite 192/192, and `npm run check` pass. Control evidence and rollover incidents are currently process-local; this limitation is explicit in the backend handoff.
+
 ### Phase 1 — Repository familiarization
 
 Status: complete.

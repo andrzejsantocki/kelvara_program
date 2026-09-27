@@ -1,25 +1,78 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
-import { createKaminoInspector, createKaminoMonitorServer, KAMINO } from "../subapps/kamino-monitor/server.js";
+import { existsSync, readFileSync } from "node:fs";
+import { announcementRegistryFromEnv, createKaminoInspector, createKaminoMonitorServer, evaluateAdminRollovers, KAMINO } from "../subapps/kamino-monitor/server.js";
 
 const WALLET = "883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
 const AUTHORITY = KAMINO.expectedUpgradeAuthority;
+const VAULT_ADMIN = "9ceRgz579BcfWogs3RE11FKNQaWW7Lmtnev3MXspxUjF";
+const ALLOCATION_ADMIN = "CuEC7JoZtHx9v5MQWrNTsLSGMEixbCEvTX6K6kWZzz7q";
 const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 function decode58(value){let n=0n;for(const c of value)n=n*58n+BigInt(ALPHABET.indexOf(c));const out=[];while(n){out.push(Number(n%256n));n/=256n}out.reverse();let leading=0;while(value[leading]==="1")leading++;return Buffer.from([...new Array(leading).fill(0),...out])}
 function programDataBytes(authority=AUTHORITY){const data=Buffer.alloc(45);data.writeUInt32LE(3,0);data.writeBigUInt64LE(432874668n,4);data[12]=1;decode58(authority).copy(data,13);return data}
 function programBytes(){const data=Buffer.alloc(36);data.writeUInt32LE(2,0);decode58(KAMINO.programData).copy(data,4);return data}
-function fixtureFetch({authority=AUTHORITY,shares="100",rate="1.070707005112529878"}={}){return async (url,options={})=>{
+function vaultStateBytes({vaultAdmin=VAULT_ADMIN,pendingAdmin=VAULT_ADMIN,allocationAdmin=ALLOCATION_ADMIN}={}){const data=Buffer.alloc(62552);Buffer.from("e4c452a562d2eb98","hex").copy(data,0);decode58(vaultAdmin).copy(data,8);decode58(pendingAdmin).copy(data,58448);decode58(allocationAdmin).copy(data,58648);return data}
+function fixtureFetch({authority=AUTHORITY,shares="100",rate="1.070707005112529878",vaultState={}}={}){return async (url,options={})=>{
  const body=options.body&&JSON.parse(options.body);
  let value;
  if(String(url).includes("/positions")) value=[{vaultAddress:KAMINO.vault,stakedShares:shares,unstakedShares:"0",totalShares:shares}];
  else if(String(url).includes("/metrics")) value={tokensPerShare:rate,apy7d:"0.073"};
  else if(body?.params?.[0]===KAMINO.program) value={context:{slot:10},value:{owner:KAMINO.loader,data:[programBytes().toString("base64"),"base64"],executable:true}};
  else if(body?.params?.[0]===KAMINO.programData) value={context:{slot:11},value:{owner:KAMINO.loader,data:[programDataBytes(authority).toString("base64"),"base64"],executable:false}};
+ else if(body?.params?.[0]===KAMINO.vault) value={context:{slot:12},value:{owner:KAMINO.program,data:[vaultStateBytes(vaultState).toString("base64"),"base64"],executable:false}};
  else throw new Error(`unexpected:${url}`);
  return {ok:true,status:200,json:async()=>String(url).includes("rpc")?{result:value}:value};
 }}
+
+test("control plane verifies every effective admin against approved baselines",async()=>{
+ const inspector=createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc",expectedVaultAdmin:VAULT_ADMIN,expectedPendingAdmin:VAULT_ADMIN,expectedAllocationAdmin:ALLOCATION_ADMIN});
+ const control=await inspector.inspectControlPlane();
+ assert.equal(control.adminRights.ruleId,"kamino-kvault-effective-admin-rights");
+ assert.equal(control.adminRights.result,"pass");
+ assert.deepEqual(control.adminRights.authorities.vaultAdmin,{current:VAULT_ADMIN,expected:VAULT_ADMIN,matches:true});
+ assert.deepEqual(control.adminRights.authorities.pendingAdmin,{current:VAULT_ADMIN,expected:VAULT_ADMIN,matches:true});
+ assert.deepEqual(control.adminRights.authorities.allocationAdmin,{current:ALLOCATION_ADMIN,expected:ALLOCATION_ADMIN,matches:true});
+ assert.deepEqual(control.adminRights.authorities.programUpgrade,{current:AUTHORITY,expected:AUTHORITY,matches:true});
+ assert.equal(control.adminRights.slot,12);
+});
+
+test("invalid vault-state evidence is unknown, never healthy",async()=>{
+ const fetchImpl=fixtureFetch();const wrapped=async(url,options={})=>{const response=await fetchImpl(url,options),body=options.body&&JSON.parse(options.body);if(body?.params?.[0]!==KAMINO.vault)return response;const payload=await response.json();payload.result.value.owner="11111111111111111111111111111111";return{...response,json:async()=>payload}};
+ const control=await createKaminoInspector({fetchImpl:wrapped,rpcUrl:"https://rpc",expectedVaultAdmin:VAULT_ADMIN,expectedPendingAdmin:VAULT_ADMIN,expectedAllocationAdmin:ALLOCATION_ADMIN}).inspectControlPlane();
+ assert.equal(control.adminRights.result,"unknown");assert.equal(control.adminRights.reason,"invalid_kvault_vault_account");
+});
+
+test("confirmed admin rollover without approved preannouncement breaches",async()=>{
+ const previous={slot:100,observedAt:"2026-09-27T10:00:00.000Z",authorities:{vaultAdmin:{current:VAULT_ADMIN},allocationAdmin:{current:ALLOCATION_ADMIN},programUpgrade:{current:AUTHORITY},pendingAdmin:{current:VAULT_ADMIN}}};
+ const nextAdmin="11111111111111111111111111111111";
+ const current={slot:101,observedAt:"2026-09-27T10:01:00.000Z",authorities:{vaultAdmin:{current:nextAdmin},allocationAdmin:{current:ALLOCATION_ADMIN},programUpgrade:{current:AUTHORITY},pendingAdmin:{current:nextAdmin}}};
+ const results=evaluateAdminRollovers({previous,current,announcements:[],registryFresh:true,changedAt:"2026-09-27T10:00:30.000Z"}),result=results.find(item=>item.role==="vault_admin_authority");
+ assert.equal(result.ruleId,"kamino-kvault-unannounced-admin-rollover");
+ assert.equal(result.result,"breach");
+ assert.equal(result.from,VAULT_ADMIN);
+ assert.equal(result.to,nextAdmin);
+ assert.equal(result.firstChangedSlot,101);
+ assert.equal(result.reason,"confirmed_admin_rollover_without_matching_preannouncement");
+});
+
+test("approved preannouncement passes and unavailable registry stays unknown",()=>{
+ const previous={slot:100,authorities:{vaultAdmin:{current:VAULT_ADMIN}}},nextAdmin="11111111111111111111111111111111",current={slot:101,observedAt:"2026-09-27T10:01:00.000Z",authorities:{vaultAdmin:{current:nextAdmin}}},announcement={vault:KAMINO.vault,role:"vault_admin_authority",from:VAULT_ADMIN,to:nextAdmin,announcedAt:"2026-09-27T09:00:00.000Z",sourceUrl:"https://governance.example/change",contentHash:"sha256:test",approvedBy:"governance"};
+ assert.equal(evaluateAdminRollovers({previous,current,announcements:[announcement],registryFresh:true})[0].result,"pass");
+ const unknown=evaluateAdminRollovers({previous,current,announcements:[],registryFresh:false})[0];assert.equal(unknown.result,"unknown");assert.equal(unknown.reason,"announcement_registry_unavailable_or_stale");
+});
+
+test("announcement registry accepts explicit reviewed JSON only",()=>{
+ const announcement={vault:KAMINO.vault,role:"vault_admin_authority",from:VAULT_ADMIN,to:"11111111111111111111111111111111",announcedAt:"2026-09-27T09:00:00.000Z",sourceUrl:"https://governance.example/change",contentHash:"sha256:test",approvedBy:"governance"};
+ assert.deepEqual(announcementRegistryFromEnv({KAMINO_ANNOUNCEMENTS_JSON:JSON.stringify([announcement]),KAMINO_ANNOUNCEMENTS_REVIEWED_AT:"2026-09-27T09:01:00.000Z"}),{fresh:true,reviewedAt:"2026-09-27T09:01:00.000Z",announcements:[announcement]});
+ assert.deepEqual(announcementRegistryFromEnv({KAMINO_ANNOUNCEMENTS_JSON:"[]"}),{fresh:false,reviewedAt:null,announcements:[]});
+});
+
+test("pending admin change without preannouncement is review",()=>{
+ const previous={slot:100,authorities:{pendingAdmin:{current:VAULT_ADMIN}}},nextAdmin="11111111111111111111111111111111",current={slot:101,observedAt:"2026-09-27T10:01:00.000Z",authorities:{pendingAdmin:{current:nextAdmin}}};
+ const result=evaluateAdminRollovers({previous,current,announcements:[],registryFresh:true});
+ assert.equal(result.length,1);assert.equal(result[0].role,"pending_admin");assert.equal(result[0].result,"review");assert.equal(result[0].reason,"pending_admin_changed_without_matching_preannouncement");
+});
 
 test("discovers Steakhouse USDG High Yield shares and values position",async()=>{
  const result=await createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"}).inspect(WALLET);
@@ -56,11 +109,13 @@ test("dust check uses underlying token amount rather than vault shares",async()=
  assert.equal(visible.position.underlyingAmount,"0.0015");
 });
 
-test("valid wallet with no indexed target position reports pending index evidence",async()=>{
- const fetchImpl=async url=>({ok:true,status:200,json:async()=>String(url).includes("/positions")?[]:{}});
- const result=await createKaminoInspector({fetchImpl,rpcUrl:"https://rpc"}).inspect(WALLET);
+test("valid wallet with no indexed target position still reports control-plane evidence",async()=>{
+ const fetchImpl=fixtureFetch({shares:"0"}),inspector=createKaminoInspector({fetchImpl,rpcUrl:"https://rpc",expectedVaultAdmin:VAULT_ADMIN,expectedPendingAdmin:VAULT_ADMIN,expectedAllocationAdmin:ALLOCATION_ADMIN});
+ const result=await inspector.inspect(WALLET);
  assert.equal(result.position,null);
  assert.equal(result.authority,null);
+ assert.equal(result.vaultAuthority.ruleId,"kamino-kvault-effective-admin-rights");
+ assert.equal(result.vaultAuthority.result,"pass");
  assert.equal(result.sourceStatus,"kamino_index_pending_or_no_position");
  assert.match(result.message,/fresh deposits may take time/i);
 });
@@ -71,6 +126,13 @@ test("production UI auto-retries a freshly deposited position",async()=>{
  assert.match(app,/pendingTimer=setInterval/);assert.match(app,/10000/);assert.match(app,/pending-wallet/);
 });
 
+test("server polls control plane without a monitored wallet and deduplicates rollovers",async()=>{
+ const nextAdmin="11111111111111111111111111111111",baseline={ruleId:"kamino-kvault-effective-admin-rights",result:"pass",slot:100,observedAt:"2026-09-27T10:00:00.000Z",authorities:{vaultAdmin:{current:VAULT_ADMIN},pendingAdmin:{current:VAULT_ADMIN},allocationAdmin:{current:ALLOCATION_ADMIN},programUpgrade:{current:AUTHORITY}}},changed={...baseline,result:"breach",slot:101,observedAt:"2026-09-27T10:01:00.000Z",authorities:{...baseline.authorities,vaultAdmin:{current:nextAdmin}}};let calls=0;
+ const inspector={inspectControlPlane:async()=>({adminRights:calls++?changed:baseline}),inspect:async()=>({})};
+ const server=createKaminoMonitorServer({inspector,pollMs:5,announcementRegistry:{fresh:true,announcements:[]}});server.listen(0,"127.0.0.1");await once(server,"listening");
+ try{await new Promise(resolve=>setTimeout(resolve,35));const status=await(await fetch(`http://127.0.0.1:${server.address().port}/api/status`)).json();assert.equal(status.monitoredWallet,null);assert.equal(status.controlLast.adminRights.slot,101);assert.equal(status.controlIncidents.length,1);assert.equal(status.controlIncidents[0].result,"breach");assert.equal(status.controlIncidents[0].role,"vault_admin_authority")}finally{server.close();await once(server,"close")}
+});
+
 test("serves production health, config and inspection API",async()=>{
  const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"})});server.listen(0,"127.0.0.1");await once(server,"listening");
  const base=`http://127.0.0.1:${server.address().port}`;
@@ -79,7 +141,7 @@ test("serves production health, config and inspection API",async()=>{
   const config=await(await fetch(`${base}/api/config`)).json();assert.equal(config.network,"mainnet");assert.equal(config.vault,KAMINO.vault);
   const inspected=await(await fetch(`${base}/api/inspect/${WALLET}`)).json();assert.equal(inspected.position.asset,"USDG");
   const page=await fetch(base);assert.match(page.headers.get("content-security-policy"),/default-src 'self'/);assert.match(page.headers.get("content-security-policy"),/connect-src 'self' https:\/\/api\.kelvara\.xyz/);
-  for(const asset of ["authority-flow-background.svg","steakhouse-usdg.svg","kamino.svg"]){const response=await fetch(`${base}/assets/${asset}`);assert.equal(response.status,200);assert.match(response.headers.get("content-type"),/image\/svg\+xml/)}
+  for(const asset of ["authority-flow-background.svg","steakhouse-usdg.svg","kamino.svg","wallets/phantom.svg","wallets/solflare.svg","wallets/backpack.svg"]){const response=await fetch(`${base}/assets/${asset}`);assert.equal(response.status,200);assert.match(response.headers.get("content-type"),/image\/svg\+xml/)}
  }finally{server.close();await once(server,"close")}
 });
 
@@ -106,6 +168,15 @@ test("wallet avatar opens explicit connect and disconnect controls",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(html,/id="wallet-chip"/);assert.match(html,/id="wallet-menu"/);assert.match(html,/id="wallet-connect-action"/);assert.match(html,/id="wallet-disconnect-action"/);
  assert.match(app,/toggleWalletMenu/);assert.match(app,/disconnectWallet/);assert.match(app,/\.disconnect\(\)/);assert.match(app,/aria-expanded/);
+});
+
+test("wallet selector uses local wallet marks and a structured connection state",()=>{
+ const root=new URL("../",import.meta.url),html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),css=readFileSync(new URL("subapps/kamino-monitor/web/styles.css",root),"utf8"),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ for(const wallet of ["phantom","solflare","backpack"]){assert.match(html,new RegExp(`/assets/wallets/${wallet}\\.svg`));assert.equal(existsSync(new URL(`subapps/kamino-monitor/web/assets/wallets/${wallet}.svg`,root)),true)}
+ assert.doesNotMatch(html,/class="wallet-logo">[PSB]</);
+ assert.match(html,/id="wallet-selector-status"/);assert.match(html,/class="wallet-progress idle"/);
+ assert.match(css,/\.wallet-selector-card[^}]*padding:/);assert.match(css,/\.wallet-progress\.connecting/);
+ assert.match(app,/setWalletSelectorState\("connecting"/);assert.match(app,/setWalletSelectorState\("error"/);
 });
 
 test("wallet selector offers Phantom Solflare and Backpack only",()=>{
@@ -170,6 +241,8 @@ test("production UI uses independent product navigation instead of a numbered de
  assert.match(html,/id="connect-wallet"/);
  assert.doesNotMatch(html,/api\.kelvara\.xyz/);
  assert.match(css,/\.connect-stage[^}]*min-height:/);
+ assert.match(css,/#stage-connect\.active\{[^}]*display:flex[^}]*flex-direction:column[^}]*overflow:visible/);
+ assert.match(css,/#stage-connect\.active \.authority-bg\{[^}]*position:relative[^}]*order:2/);
  assert.match(app,/\.product-nav button/);
 });
 
