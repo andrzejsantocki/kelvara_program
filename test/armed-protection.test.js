@@ -119,3 +119,19 @@ test("frontend reuses backend-recovered nonce accounts before generating keys",a
  assert.match(app,/Nonce setup recovered/);
  assert.match(app,/await inspect\(\);await loadProtection\(\)/);
 });
+
+test("confirmed manual evacuation finalizes the persisted armed record",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"kelvara-manual-finalize-")),store=createProtectionStore({path:join(dir,"armed.enc"),key:Buffer.alloc(32,8)}),auth=createWalletAuth(),keypair=Keypair.generate(),wallet=keypair.publicKey.toString(),manualSignature="manual-confirmed-signature";
+ await store.save(wallet,{wallet,shares:"1",variants:[0,1,2].map(index=>({signature:`armed-${index}`,nonceAccount:Keypair.generate().publicKey.toString(),priorityMicroLamports:index}))});
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},protectionStore:store,walletAuth:auth,finalizeManualEvacuation:async(signature,authenticatedWallet)=>{assert.equal(signature,manualSignature);assert.equal(authenticatedWallet,wallet);return{signature,confirmedAt:"2026-09-27T14:52:11.000Z"}}});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try{const challenge=await(await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet})})).json(),signed=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64"),session=await(await fetch(`${base}/api/auth/verify`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet,message:challenge.message,signature:signed})})).json();
+  const finalized=await(await fetch(`${base}/api/protection/manual-evacuation/finalize`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${session.token}`},body:JSON.stringify({signature:manualSignature})})).json();assert.equal(finalized.completedAt,"2026-09-27T14:52:11.000Z");assert.equal(finalized.completionMode,"manual");assert.equal(finalized.winner,manualSignature);
+  const stored=await store.get(wallet);assert.equal(stored.completedAt,"2026-09-27T14:52:11.000Z");assert.equal(stored.completionMode,"manual");assert.equal(stored.revocationRequired.length,3);
+ }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
+});
+
+test("frontend records manual evacuation after confirmation",async()=>{
+ const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
+ assert.match(app,/manual-evacuation\/finalize/);
+ assert.match(app,/signature:submitted\.signature/);
+});
