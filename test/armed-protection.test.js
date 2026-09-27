@@ -100,3 +100,20 @@ test("arming API requires wallet authentication and stores three signed variants
   const stored=await store.get(keypair.publicKey.toString());assert.equal(stored.monitoring.active,true);assert.equal(stored.monitoring.protocol,"Kamino Earn");assert.equal(stored.monitoring.vault,KAMINO.vault);
  }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
 });
+
+test("protection status recovers confirmed nonce setup for reconnecting wallet",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"kelvara-recovery-")),store=createProtectionStore({path:join(dir,"armed.enc"),key:Buffer.alloc(32,7)}),auth=createWalletAuth(),keypair=Keypair.generate(),nonceAccounts=[Keypair.generate(),Keypair.generate(),Keypair.generate()].map(key=>key.publicKey.toString());
+ const recoverPendingNonceSetup=async wallet=>({wallet,nonceAccounts,setupSignature:"confirmed-setup",setupConfirmed:true});
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},protectionStore:store,walletAuth:auth,recoverPendingNonceSetup});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try{const challenge=await(await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString()})})).json(),signature=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64"),session=await(await fetch(`${base}/api/auth/verify`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString(),message:challenge.message,signature})})).json();
+  const status=await(await fetch(`${base}/api/protection/status`,{headers:{authorization:`Bearer ${session.token}`}})).json();
+  assert.equal(status.armed,false);assert.equal(status.setupConfirmed,true);assert.deepEqual(status.pendingNonceAccounts,nonceAccounts);assert.equal(status.setupSignature,"confirmed-setup");
+  const stored=await store.get(keypair.publicKey.toString());assert.deepEqual(stored.pendingNonceAccounts,nonceAccounts);
+ }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
+});
+
+test("frontend reuses backend-recovered nonce accounts before generating keys",async()=>{
+ const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
+ assert.match(app,/protectionStatus\?\.pendingNonceAccounts/);
+ assert.match(app,/pendingNonceAccounts\?\.length===3/);
+});
