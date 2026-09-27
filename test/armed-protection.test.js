@@ -117,4 +117,5 @@ test("frontend reuses backend-recovered nonce accounts before generating keys",a
  assert.match(app,/protectionStatus\?\.pendingNonceAccounts/);
  assert.match(app,/pendingNonceAccounts\?\.length===3/);
  assert.match(app,/Nonce setup recovered/);
+ assert.match(app,/await inspect\(\);await loadProtection\(\)/);
 });
