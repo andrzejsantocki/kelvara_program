@@ -134,4 +134,5 @@ test("frontend records manual evacuation after confirmation",async()=>{
  const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
  assert.match(app,/manual-evacuation\/finalize/);
  assert.match(app,/signature:submitted\.signature/);
+ assert.match(app,/evacuationAvailable=status\.armed&&\!status\.completedAt/);
 });
