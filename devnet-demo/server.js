@@ -11,12 +11,12 @@ const splBundle=join(dirname(fileURLToPath(import.meta.url)),"node_modules/@sola
 const assets=new Map([["/",["index.html","text/html; charset=utf-8"]],["/app.js",["app.js","text/javascript; charset=utf-8"]],["/styles.css",["styles.css","text/css; charset=utf-8"]],["/saturn-mark.svg",["saturn-mark.svg","image/svg+xml"]],["/kelvara-icon.png",["kelvara-icon.png","image/png"]]]);
 function json(response,status,value){response.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"});response.end(JSON.stringify(value))}
 async function body(request){const chunks=[];for await(const chunk of request){chunks.push(chunk);if(chunks.reduce((n,c)=>n+c.length,0)>100_000)throw new Error("request_too_large")}if(!chunks.length)return{};return JSON.parse(Buffer.concat(chunks).toString("utf8"))}
-function clientId(request){return request.headers["x-forwarded-for"]?.split(",")[0].trim()||request.socket.remoteAddress||"unknown"}
+function clientId(request){return request.headers["cf-connecting-ip"]||request.headers["x-forwarded-for"]?.split(",")[0].trim()||request.socket.remoteAddress||"unknown"}
 function exposed(record){const {permitTransaction,...safe}=record;return{...safe,explorer:{session:explorerUrl("address",record.sessionPda),initialize:explorerUrl("signature",record.signature)}}}
 
-export function createDemoServer({chain,monitor=null,clock=Date.now,schedule=setTimeout}={}){
+export function createDemoServer({chain,monitor=null,clock=Date.now,schedule=setTimeout,allowedOrigins=(process.env.ALLOWED_ORIGINS||"https://kelvara.xyz").split(",").map(value=>value.trim()).filter(Boolean),rateLimit=Number(process.env.FUND_RATE_LIMIT||5)}={}){
  if(!chain)throw new TypeError("chain_adapter_required");
- const sessions=new Map();const activeByWallet=new Map();const idempotency=new Map();const sseStreams=new Map();const activityMetadata=new Map();
+ const sessions=new Map();const activeByWallet=new Map();const idempotency=new Map();const sseStreams=new Map();const activityMetadata=new Map(),fundWindows=new Map();
  function recordActivity(wallet,signature,metadata){if(!wallet||!signature||signature.startsWith("already"))return;if(!activityMetadata.has(wallet))activityMetadata.set(wallet,new Map());activityMetadata.get(wallet).set(signature,metadata)}
  function broadcast(sessionId,data){for(const response of sseStreams.get(sessionId)||[]){try{response.write(`data: ${JSON.stringify(data)}\n\n`)}catch{}}}
  function owned(request,id){const record=sessions.get(id);if(!record)return{error:[404,{error:"session_not_found"}]};if(record.owner!==clientId(request))return{error:[403,{error:"session_owner_mismatch"}]};return{record}}
@@ -29,13 +29,14 @@ export function createDemoServer({chain,monitor=null,clock=Date.now,schedule=set
   broadcast(record.id,{event:"reset_confirmed",signature:result.signature,status:"baseline"});
   return{...result,status:"baseline",evidence,monitoring,explorer:explorerUrl("signature",result.signature)};
  }
+ function allowFund(request){const now=clock(),key=clientId(request),state=fundWindows.get(key);if(!state||now-state.startedAt>=3_600_000){fundWindows.set(key,{startedAt:now,count:1});return true}state.count++;return state.count<=rateLimit}
  const server=http.createServer(async(request,response)=>{try{
-  const url=new URL(request.url,"http://localhost");
+  const url=new URL(request.url,"http://localhost"),origin=request.headers.origin;response.setHeader("x-content-type-options","nosniff");response.setHeader("referrer-policy","no-referrer");response.setHeader("permissions-policy","camera=(), microphone=(), geolocation=()");response.setHeader("content-security-policy","default-src 'none'; frame-ancestors 'none'");if(origin){if(!allowedOrigins.includes(origin))return json(response,403,{error:"origin_not_allowed"});response.setHeader("access-control-allow-origin",origin);response.setHeader("vary","Origin");response.setHeader("access-control-allow-methods","GET, POST, OPTIONS");response.setHeader("access-control-allow-headers","Content-Type");response.setHeader("access-control-max-age","600")}if(request.method==="OPTIONS"){response.writeHead(204);return response.end()}
   if(request.method==="GET"&&url.pathname==="/api/health")return json(response,200,{service:"devnet-scenario-capsule",cluster:"devnet",programId:chain.programId,mint:chain.mint,status:"ready"});
   const walletActivity=url.pathname.match(/^\/api\/wallets\/([^/]+)\/activity$/);if(request.method==="GET"&&walletActivity){if(!chain.walletActivity)return json(response,501,{error:"wallet_activity_unavailable"});const publicKey=decodeURIComponent(walletActivity[1]);const activity=await chain.walletActivity({publicKey,limit:10});const known=activityMetadata.get(publicKey)||new Map();activity.transactions=activity.transactions.map(tx=>({...tx,protocol:"Solana",action:"Solana transaction",icon:"wallet",...(known.get(tx.signature)||{})}));return json(response,200,activity)}
   if(request.method==="GET"&&url.pathname==="/solana-web3.js"){response.writeHead(200,{"content-type":"text/javascript; charset=utf-8","cache-control":"public, max-age=3600"});return response.end(await readFile(web3Bundle))}
   if(request.method==="POST"&&url.pathname==="/api/sandbox/fund"){
-   const input=await body(request);if(!input.publicKey)return json(response,400,{error:"public_key_required"});
+   if(!allowFund(request))return json(response,429,{error:"fund_rate_limit",message:"Demo funding limit reached. Try again later."});const input=await body(request);if(!input.publicKey)return json(response,400,{error:"public_key_required"});
    const result=await chain.fundBurner({recipientPubkey:input.publicKey});recordActivity(input.publicKey,result.signature,{protocol:"Solana",action:"Wallet funded",icon:"wallet",amount:result.balanceUsdc,asset:"USDC"});
    return json(response,200,{funded:true,...result,explorer:result.signature&&!result.signature.startsWith("already")?explorerUrl("signature",result.signature):null});
   }
