@@ -258,7 +258,8 @@ test("production UI has no obsolete product navbar or numbered demo journey",()=
  for(const route of ["position","authority","monitor"])assert.doesNotMatch(html,new RegExp(`<button data-step="${route}"`));
  assert.match(html,/id="header-connect"/);
  assert.doesNotMatch(html,/id="connect"/);
- assert.match(html,/id="connect-wallet"/);
+ assert.doesNotMatch(html,/id="connect-wallet"/);
+ assert.equal((html.match(/id="wallet-chip"/g)||[]).length,1);
  assert.doesNotMatch(html,/api\.kelvara\.xyz/);
  assert.match(css,/\.connect-stage[^}]*min-height:/);
  assert.match(css,/#stage-connect\.active\{[^}]*display:flex[^}]*flex-direction:column[^}]*overflow:visible/);
