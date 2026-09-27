@@ -252,11 +252,10 @@ test("production UI implements the approved assurance-canvas design",()=>{
  assert.match(app,/syncDiagram/);assert.match(app,/safeguard-summary/);
 });
 
-test("production UI uses independent product navigation instead of a numbered demo journey",()=>{
+test("production UI has no obsolete product navbar or numbered demo journey",()=>{
  const root=new URL("../",import.meta.url),html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),css=readFileSync(new URL("subapps/kamino-monitor/web/styles.css",root),"utf8"),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
- assert.doesNotMatch(html,/class="journey"|journey-step|STEP [1-4]/);
- assert.match(html,/class="product-nav"/);
- for(const route of ["position","authority","monitor"])assert.match(html,new RegExp(`data-step="${route}"`));
+ assert.doesNotMatch(html,/class="journey"|journey-step|STEP [1-4]|class="product-nav"/);
+ for(const route of ["position","authority","monitor"])assert.doesNotMatch(html,new RegExp(`<button data-step="${route}"`));
  assert.match(html,/id="header-connect"/);
  assert.doesNotMatch(html,/id="connect"/);
  assert.match(html,/id="connect-wallet"/);
@@ -264,7 +263,7 @@ test("production UI uses independent product navigation instead of a numbered de
  assert.match(css,/\.connect-stage[^}]*min-height:/);
  assert.match(css,/#stage-connect\.active\{[^}]*display:flex[^}]*flex-direction:column[^}]*overflow:visible/);
  assert.match(css,/#stage-connect\.active \.authority-bg\{[^}]*position:relative[^}]*order:2/);
- assert.match(app,/\.product-nav button/);
+ assert.doesNotMatch(app,/\.product-nav button/);
 });
 
 test("production UI provides wallet inspection and monitoring surfaces",async()=>{
@@ -272,7 +271,8 @@ test("production UI provides wallet inspection and monitoring surfaces",async()=
  const base=`http://127.0.0.1:${server.address().port}`;
  try{
   const html=await(await fetch(base)).text();const app=await(await fetch(`${base}/app.js`)).text();
-  for(const surface of ["Positions","Safeguards","Monitor"])assert.match(html,new RegExp(surface));
+  for(const surface of ["Positions discovered for this wallet","Review what must remain stable","Live protection for this position"])assert.match(html,new RegExp(surface));
+  assert.doesNotMatch(html,/class="product-nav"/);
   assert.match(html,/Connect wallet/);assert.match(html,/Steakhouse USDG High Yield/);assert.match(html,/Activate monitoring/);assert.match(html,/never asks for your private key or seed phrase/i);
   assert.doesNotMatch(html,/Mainnet MVP|Read-only · no signatures|never asks for a transaction/i);
   assert.match(app,/window\.solana/);assert.match(app,/\/api\/inspect\//);assert.match(app,/underlyingAmount/);assert.match(app,/\.meaning/);
