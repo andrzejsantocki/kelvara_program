@@ -1,0 +1,19 @@
+[toolchain]
+anchor_version = "0.32.1"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+scenario_capsule = "GGwyWv1goVjyTiH9tQ72uXrn2voF56eZESnM4rEwrY98"
+
+[programs.devnet]
+scenario_capsule = "GGwyWv1goVjyTiH9tQ72uXrn2voF56eZESnM4rEwrY98"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test --workspace"

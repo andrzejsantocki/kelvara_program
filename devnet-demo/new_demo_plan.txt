@@ -1,0 +1,130 @@
+Here is the revised, end-to-end UX/UI architecture.
+It strictly decouples DeFi investing from Kelvara protection, introduces the Durable Nonce / Delegation Permit authorization flow with fee presentation, and keeps the entire keypair and signing experience inside the docked in-app Devnet wallet on the right.
+System Architecture Overview
+code
+Code
+┌───────────────────────────────────────────────────────────────┬──────────────────────────────────────┐
+│                    MAIN APP (LEFT 65%)                        │   IN-BROWSER BURNER WALLET (RIGHT 35%)
+├───────────────────────────────────────────────────────────────┼──────────────────────────────────────┤
+│ Dynamic Stage Flow:                                           │ • Public Key & Devnet Network Badge  │
+│ [1. YieldVault DApp] ──> [2. Kelvara Protection] ──> [3. Exploit Lab]│ • Live Balances: SOL & MockUSDC      │
+│                                                               │ • Interactive Signing Drawer         │
+│                                                               │ • Live Transaction Feed / Explorer   │
+└───────────────────────────────────────────────────────────────┴──────────────────────────────────────┘
+Step-by-Step User Journey
+Stage 0: Instant Sandbox Setup (0–2 seconds)
+User Lands on Demo:
+The right tab creates an ephemeral in-session Devnet keypair (Keypair.generate()).
+Backend airdrops 0.08 SOL (for rent/fees) + 1,000.00 MockUSDC.
+Right Tab (Wallet) displays:
+Address: EvKp7...Hg3y [Burner Session]
+◎ 0.08 SOL
+💵 1,000.00 MockUSDC
+Status: Ready for transactions
+Stage 1: The Naked DeFi Deposit (Completely independent of Kelvara)
+The user is presented with a standard DeFi lending/yield protocol interface: YieldVault Alpha.
+UI Display:
+Protocol: YieldVault Alpha (Devnet Pool)
+APY: 21.4% | Strategy: Leveraged Liquidity Provision
+Vault Status: Unprotected / Vulnerable to exploit
+Input: Deposit: [ 1,000 ] MockUSDC
+User Action: Clicks [ Deposit 1,000 MockUSDC ].
+What Happens:
+The session wallet executes the deposit instruction to the Vault contract (GGwyWv...Y98).
+Visual Updates:
+Wallet Tab (Right): Balance drops from 1,000.00 MockUSDC ➔ 0.00 MockUSDC.
+Vault UI (Left): Shows active position: 1,000.00 yvUSDC (~$1,000.00).
+An unshielded badge appears: ⚠️ UNPROTECTED POSITION.
+Stage 2: Kelvara Discovery & Protection Activation
+Immediately after the deposit transaction confirms, the UI smoothly shifts focus to the Kelvara Discovery Modal / Card:
+code
+Code
+┌──────────────────────────────────────────────────────────────────────────┐
+│ 🛡️ Kelvara Autonomous Sentry                                              │
+│                                                                          │
+│ 🔍 Found unprotected position:                                           │
+│    • Protocol: YieldVault Alpha                                          │
+│    • Covered Capital: 1,000.00 MockUSDC                                  │
+│    • Sentry SLA: Autonomous atomic evacuation if invariants breached     │
+│                                                                          │
+│ 💳 Protection Coverage Fee:                                              │
+│    • Rate: 1.00% / year                                                  │
+│    • Duration: 12 Months                                                 │
+│    • Total Upfront Fee: 10.00 MockUSDC                                   │
+│                                                                          │
+│             [ 🛡️ Activate Kelvara Protection (1-Click) ]                 │
+└──────────────────────────────────────────────────────────────────────────┘
+User Action: Clicks [ 🛡️ Activate Kelvara Protection ].
+Right Wallet Tab Interaction (The Signing Moment):
+The right wallet tab slides open a "Sign Protection Permit" drawer:
+code
+Code
+┌──────────────────────────────────────────────┐
+│ 📝 APPROVE TRANSACTIONS (2 INSTRUCTIONS)      │
+├──────────────────────────────────────────────┤
+│ 1. Transfer Protection Fee:                  │
+│    -10.00 MockUSDC ➔ Kelvara Treasury         │
+│                                              │
+│ 2. Authorize Evacuation Permit:              │
+│    • Type: Pre-authorized Durable Nonce /    │
+│            Delegation PDA                    │
+│    • Trigger: Anomaly flag on Vault          │
+│    • Target Recipient: EvKp7...Hg3y (YOU)    │
+│    ⚠️ Non-Custodial: Funds can ONLY be       │
+│       withdrawn back to your address!        │
+│                                              │
+│ [ Sign & Arm Protection in Session Wallet ]  │
+└──────────────────────────────────────────────┘
+User signs directly in the right tab:
+A durable nonce / delegation transaction is submitted to Devnet.
+Resulting UI State:
+Vault card turns Electric Green: 🛡️ KELVARA GUARDIAN ARMED.
+Status: Autonomous Evacuation Standby.
+Stage 3: The Exploit Simulation Lab
+The app advances to the incident testing environment: "The Exploit Simulator".
+Incident Selector:
+User selects an attack vector:
+[x] Rogue Admin / Authority Hijack (Admin keys leaked, drain imminent)
+[ ] NAV Manipulation / Instant Invariant Break
+[ ] Unauthorized Emergency Pause
+User Action: Clicks [ 💥 Launch On-Chain Attack on Devnet ].
+Stage 4: Attack ➔ 2-Second Delay ➔ Autonomous Evacuation (The Payoff)
+The Attack Lands (T = 0.0s):
+Real Devnet transaction executes set_authority or sets Flags = 1 on your program GGwyWv...Y98.
+Left screen flashes RED:
+code
+Code
+🚨 ATTACK CONFIRMED IN BLOCK 504,430,373
+⚠️ Vault Authority hijacked by: DpbwV...GhxXv
+⚠️ Protocol status: COMPROMISED
+Vault position shows: DANGER / CAPITAL AT RISK.
+The 1–2 Second Real-Time Kelvara Detection Window (T = +1.2s):
+A terminal counter ticks:
+[+0.4s] Sentry RPC log listener: Invariant check failed.
+[+0.8s] Kelvara Risk Score: 100/100 (CRITICAL EXPLOIT DETECTED).
+[+1.2s] Executing Durable Nonce Evacuation using pre-authorized permit...
+Autonomous Evacuation Confirmed (T = +1.8s):
+The Right Wallet Tab flashes green and vibrates/animates:
+Token Balance immediately jumps: 0.00 ➔ 1,000.00 MockUSDC (or 990 if fee subtracted).
+New item in Wallet Activity:
+code
+Code
+🛡️ INCOMING EVACUATION
++1,000.00 MockUSDC from Kelvara Emergency Executor
+Tx: 56w369bL8LXsjFjM... [View on Solscan ↗]
+Main Screen displays Victory Banner:
+code
+Code
+🎉 POSITION AUTONOMOUSLY SAVED
+• Attack neutralized in: 1.8 seconds
+• Loss prevented: $1,000.00
+• Return Path: Directly to your burner wallet
+Key Technical Enhancements to Support This Flow
+Durable Nonce / Advance Signed Permit:
+When the user signs in Stage 2, you create a Durable Nonce Account on Devnet (system_program::create_nonce_account).
+The user signs an emergency withdrawal instruction using the durable nonce as the blockhash, and the signed transaction is passed to the Kelvara backend relayer.
+Because it uses a durable nonce, this signed transaction never expires due to blockhash timeouts.
+Instant Backend Relayer Execution:
+When the attack transaction is submitted in Stage 3, your backend monitoring script detects the state change on GGwyWv...Y98, advances the nonce, and submits the pre-signed evacuation transaction to the RPC.
+Pure Browser Session State:
+Store the burner wallet secret key in sessionStorage. If the user refreshes, they can pick up right where they left off; if they close the tab, the burner keypair is wiped cleanly.

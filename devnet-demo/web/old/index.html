@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kelvara Devnet Demo — Autonomous Evacuation</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/solana-web3.js"></script>
+</head>
+<body>
+  <!-- Top App Navigation -->
+  <header class="global-header">
+    <div class="brand-group">
+      <div class="logo-mark">🛡️</div>
+      <div>
+        <div class="brand-title">KELVARA / LIVE DEVNET</div>
+        <div class="brand-subtitle">Autonomous Invariant Monitoring & Atomic Evacuation Engine</div>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <span id="health" class="global-badge">CONNECTING</span>
+      <button id="guide-btn" class="btn btn-guide" title="Interactive Walkthrough">💡 Guide Tour</button>
+      <button id="reset" class="btn btn-outline" disabled>Restore baseline</button>
+      <button id="toggle-wallet-btn" class="btn btn-wallet-toggle" title="Toggle Wallet View">
+        👛 <span id="toggle-wallet-label">Hide Wallet</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Interactive Shading Backdrop -->
+  <div id="guide-overlay" class="guide-overlay" style="display: none;"></div>
+
+  <!-- Interactive Bottom Guidance Mission Console -->
+  <div id="guide-modal" class="guide-modal" style="display: none;">
+    <div class="guide-progress-bar">
+      <div class="guide-tag-wrap">
+        <span class="guide-pulse-dot"></span>
+        <span id="guide-step-tag" class="guide-step-tag">MISSION STEP 1 OF 5</span>
+      </div>
+      <button id="guide-close-btn" class="guide-close-btn" title="Close Guide">✕</button>
+    </div>
+    <div class="guide-content-row">
+      <div class="guide-text-col">
+        <h3 id="guide-title" class="guide-title">Welcome to the Live Devnet Demo</h3>
+        <p id="guide-desc" class="guide-desc">All transactions and mutations execute directly on Solana Devnet.</p>
+      </div>
+      <div class="guide-actions-wrap">
+        <button id="guide-next-btn" class="btn btn-primary btn-action">Step 1: Check Session Wallet →</button>
+        <div class="guide-sub-links">
+          <button id="guide-prev-btn" class="btn-link" disabled>← Previous</button>
+          <span class="sep">•</span>
+          <button id="guide-skip-btn" class="btn-link">Skip Tour</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Multi-Console Workspace -->
+  <div class="workspace-grid" id="workspace">
+    
+    <!-- SYSTEM 1: EXTERNAL DEFI DAPP (DeFi Skin: Light & Purple) -->
+    <section class="console-column defi-skin">
+      <div class="column-header">
+        <div class="defi-badge-group">
+          <span class="defi-tag">EXTERNAL PROTOCOL</span>
+          <span class="defi-version">v2.1-devnet</span>
+        </div>
+        <h2 class="defi-brand">YieldVault Alpha</h2>
+        <p class="defi-sub">Leveraged Liquidity Provision & Yield Farming Protocol</p>
+      </div>
+
+      <!-- Protocol Position Card -->
+      <div class="defi-card" id="defi-pool-card">
+        <div class="defi-card-top">
+          <div>
+            <span class="defi-metric-label">Devnet USDC Pool</span>
+            <div class="defi-metric-val">21.4% <span class="defi-apy">Net APY</span></div>
+          </div>
+          <div class="defi-badge warning" id="defi-position-badge">⚠️ UNPROTECTED POOL</div>
+        </div>
+
+        <div class="defi-card-body">
+          <!-- Deposit Form -->
+          <div id="deposit-form-area" class="defi-action-box">
+            <label class="defi-input-label">Deposit Capital into Pool</label>
+            <div class="defi-input-wrap">
+              <input type="number" id="deposit-amount" value="1000" readonly>
+              <span class="defi-input-suffix">MockUSDC</span>
+            </div>
+            <button id="start" class="btn btn-defi">Deposit 1,000 MockUSDC (Start isolated Devnet demo)</button>
+          </div>
+
+          <!-- Active Position Display (Appears after deposit) -->
+          <div id="position-display" class="defi-position-box" style="display: none;">
+            <div class="defi-pos-row">
+              <span class="defi-muted">Active Position:</span>
+              <strong id="position-amount">1,000.00 yvUSDC (~$1,000.00)</strong>
+            </div>
+            <div class="defi-pos-row">
+              <span class="defi-muted">Status:</span>
+              <span id="defi-shield-status" class="text-danger font-mono">Vulnerable to Exploit</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Exploit Simulator Card -->
+      <div class="defi-card exploit-simulator-card" id="exploit-card">
+        <div class="defi-card-top">
+          <div>
+            <span class="defi-metric-label">Target Exploit Simulator</span>
+            <h3 class="exploit-title">Simulate Attack on YieldVault</h3>
+          </div>
+          <span class="defi-badge danger">DEVNET EXPLOIT LAB</span>
+        </div>
+
+        <div class="exploit-body">
+          <p class="exploit-desc">Select an on-chain attack vector to execute against YieldVault's Devnet program:</p>
+          
+          <div class="exploit-options">
+            <label class="exploit-radio-card">
+              <input type="radio" name="exploit-vector" value="authority_changed" checked>
+              <div class="radio-meta">
+                <strong>Rogue Admin / Authority Hijack</strong>
+                <span class="exploit-sub">Admin keys compromised on Devnet. Program upgrade authority transferred.</span>
+              </div>
+            </label>
+
+            <label class="exploit-radio-card">
+              <input type="radio" name="exploit-vector" value="nav_jump">
+              <div class="radio-meta">
+                <strong>NAV Manipulation / Invariant Jump</strong>
+                <span class="exploit-sub">Pricing oracle skewed instantly; collateral invariant broken.</span>
+              </div>
+            </label>
+
+            <label class="exploit-radio-card">
+              <input type="radio" name="exploit-vector" value="paused">
+              <div class="radio-meta">
+                <strong>Unauthorized Emergency Freeze</strong>
+                <span class="exploit-sub">Protocol pause bit toggled by unauthorized caller.</span>
+              </div>
+            </label>
+          </div>
+
+          <button id="trigger" class="btn btn-attack" disabled>💥 Launch On-Chain Attack (Trigger real transaction)</button>
+
+          <!-- Compromise Alert Banner (shown when attacked) -->
+          <div id="attack-alert" class="attack-compromise-banner" style="display: none;">
+            <div class="alert-icon-wrap">🚨</div>
+            <div>
+              <strong id="attack-block-text">ATTACK CONFIRMED IN DEVNET BLOCK</strong>
+              <div id="attack-summary-text">YieldVault authority hijacked! Capital at risk.</div>
+              <div id="attack-tx-link" class="tx-link"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SYSTEM 2: KELVARA PERSISTENT SENTRY CONSOLE (Security Skin: Dark Slate & Neon) -->
+    <section class="console-column sentry-skin">
+      <div class="column-header">
+        <div class="sentry-badge-group">
+          <span class="sentry-tag">AUTONOMOUS SENTRY</span>
+          <span id="sentry-status-badge" class="sentry-status-pill standby">⚪ STANDBY</span>
+        </div>
+        <h2 class="sentry-brand">Kelvara Autonomous Sentry</h2>
+        <p class="sentry-sub">Persistent Invariant Verification & Autonomous Evacuation Relayer</p>
+      </div>
+
+      <!-- Sentry Telemetry Card -->
+      <div class="sentry-card">
+        <div class="sentry-card-header">
+          <span class="sentry-card-label">MONITORED INVARIANTS</span>
+          <span class="pulse-indicator"></span>
+        </div>
+
+        <div class="invariants-grid">
+          <div class="invariant-cell" id="inv-authority">
+            <span class="inv-name">Upgrade Authority</span>
+            <span class="inv-status font-mono" id="inv-authority-status">STANDBY</span>
+          </div>
+          <div class="invariant-cell" id="inv-nav">
+            <span class="inv-name">Collateral NAV</span>
+            <span class="inv-status font-mono" id="inv-nav-status">STANDBY</span>
+          </div>
+          <div class="invariant-cell" id="inv-pause">
+            <span class="inv-name">Emergency Pause</span>
+            <span class="inv-status font-mono" id="inv-pause-status">STANDBY</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sentry Coverage & Nonce Permit Details -->
+      <div class="sentry-card">
+        <div class="sentry-card-header">
+          <span class="sentry-card-label">COVERAGE SLA & PERMIT TELEMETRY</span>
+        </div>
+        <div class="coverage-details">
+          <div class="cov-row">
+            <span class="cov-label">Target Protocol:</span>
+            <span class="cov-value">YieldVault Alpha</span>
+          </div>
+          <div class="cov-row">
+            <span class="cov-label">Covered Capital:</span>
+            <span class="cov-value text-accent" id="cov-capital-val">$0.00 (Deposit to Arm)</span>
+          </div>
+          <div class="cov-row">
+            <span class="cov-label">Evacuation Permit:</span>
+            <span class="cov-value font-mono" id="cov-permit-status">Awaiting Position Deposit</span>
+          </div>
+          <div class="cov-row">
+            <span class="cov-label">Non-Custodial Destination:</span>
+            <span class="cov-value font-mono text-emerald" id="cov-recipient-addr">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Sentry Event Feed / Terminal -->
+      <div class="sentry-card terminal-card">
+        <div class="terminal-bar">
+          <span class="terminal-title">REAL-TIME SENTRY EXECUTION TIMELINE</span>
+          <span class="terminal-network">RPC LOG LISTENER</span>
+        </div>
+        <ol id="progress" class="terminal-stream">
+          <li class="term-line term-dim">[0.0s] Kelvara Sentry daemon ready on Devnet cluster.</li>
+        </ol>
+      </div>
+
+      <!-- Victory Banner (Integrated inside Sentry Console) -->
+      <div id="victory-banner" class="sentry-victory-card" style="display: none;">
+        <div class="victory-header">
+          <span class="victory-badge">🛡️ KELVARA GUARDIAN PAYOFF</span>
+          <h3>POSITION AUTONOMOUSLY SAVED</h3>
+        </div>
+        <div class="victory-grid">
+          <div class="v-box">
+            <span class="v-label">Attack Neutralized In</span>
+            <span class="v-number">1.8s</span>
+          </div>
+          <div class="v-box">
+            <span class="v-label">Loss Prevented</span>
+            <span class="v-number text-emerald">$1,000.00</span>
+          </div>
+          <div class="v-box">
+            <span class="v-label">Return Destination</span>
+            <span class="v-number text-emerald">Burner Wallet</span>
+          </div>
+        </div>
+        <div id="evac-tx-proof" class="evac-proof-link"></div>
+      </div>
+    </section>
+
+    <!-- IN-BROWSER BURNER WALLET (Collapsible Right Panel) -->
+    <aside class="console-column wallet-skin" id="wallet-panel">
+      <div class="column-header wallet-header-row">
+        <div>
+          <span class="wallet-tag">IN-APP DEVNET WALLET</span>
+          <h2 class="wallet-brand">Burner Session</h2>
+        </div>
+        <span class="network-badge">🟢 Devnet</span>
+      </div>
+
+      <!-- Wallet Account Card -->
+      <div class="wallet-card">
+        <div class="address-box">
+          <span class="address-label">Session Public Key</span>
+          <div class="address-row">
+            <span id="wallet-address" class="address-text">Generating...</span>
+            <button id="copy-address" class="btn-icon" title="Copy Address">📋</button>
+          </div>
+        </div>
+
+        <div class="balances-grid">
+          <div class="balance-cell">
+            <span class="bal-label">Devnet SOL</span>
+            <span id="sol-balance" class="bal-val">◎ 0.08</span>
+          </div>
+          <div class="balance-cell">
+            <span class="bal-label">MockUSDC</span>
+            <span id="usdc-balance" class="bal-val highlight">💵 1,000.00</span>
+          </div>
+        </div>
+
+        <div class="wallet-state-pill">
+          <span id="wallet-status-badge" class="state-text">Ready for transactions</span>
+        </div>
+      </div>
+
+      <!-- Interactive Signing Drawer -->
+      <div id="signing-drawer" class="signing-drawer" style="display: none;">
+        <div class="drawer-header">
+          <span class="drawer-title">📝 APPROVE TRANSACTIONS</span>
+        </div>
+        <div id="drawer-instructions" class="drawer-instructions font-mono">
+          <!-- Populated by JS -->
+        </div>
+        <div class="drawer-guarantee">
+          🔒 <strong>Non-Custodial Check:</strong> Evacuation permit can ONLY route capital back to your session address.
+        </div>
+        <button id="drawer-sign-btn" class="btn btn-sign">Sign & Submit in Session Wallet</button>
+      </div>
+
+      <!-- Live Activity Feed -->
+      <div class="wallet-activity-box">
+        <div class="activity-header">
+          <span>Live Wallet Activity</span>
+        </div>
+        <ul id="activity-feed" class="activity-list">
+          <li class="activity-empty">Awaiting first transaction...</li>
+        </ul>
+      </div>
+    </aside>
+
+  </div>
+
+  <div id="proof" style="display:none;"></div>
+  
+  <footer class="app-footer">
+    Real Devnet transactions. Isolated state. Automatic logical reset. Immutable Explorer proof.
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

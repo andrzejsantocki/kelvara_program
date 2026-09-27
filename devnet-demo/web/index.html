@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kelvara — Live Devnet Journey</title>
+  <link rel="stylesheet" href="/styles.css"><script src="/solana-web3.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="wordmark" href="#" aria-label="Kelvara home"><img class="kelvara-mark" src="/kelvara-icon.png" alt=""><span>Kelvara</span></a>
+  <div class="top-actions"><span id="health" class="network"><i></i> Connecting</span><button id="reset" class="quiet">Restart demo</button><button id="wallet-chip" class="wallet-chip" disabled><span class="avatar"></span><span id="chip-address">Creating wallet…</span></button></div>
+</header>
+<div class="journey" style="--progress:0%"><div class="progress-rail" aria-hidden="true"><i></i></div><span class="journey-step active" data-step="wallet"><em>1</em><b>Wallet</b></span><span class="journey-step" data-step="earn"><em>2</em><b>Deposit</b></span><span class="journey-step" data-step="protect"><em>3</em><b>Protect</b></span><span class="journey-step" data-step="monitor"><em>4</em><b>Monitor</b></span><span class="journey-step" data-step="secured"><em>5</em><b>Secured</b></span></div>
+<div class="app-switcher" aria-label="Switch mini app"><button class="app-switch active" data-app="saturn"><img src="/saturn-mark.svg" alt=""><span><b>Saturn Earn</b><small>Deposit app · Steps 1–3</small></span></button><button class="app-switch" data-app="kelvara" disabled><img src="/kelvara-icon.png" alt=""><span><b>Kelvara</b><small>Protection app · Steps 4–5</small></span><i class="switch-lock" aria-label="Locked until deposit">Locked</i></button></div>
+<main>
+  <section id="stage-wallet" class="stage active">
+    <div class="journey-intro"><span>5-minute walkthrough</span><strong>Deposit into Saturn Earn. Protect the position with Kelvara. Watch a breach trigger an automatic exit.</strong><small>Five guided steps</small></div>
+    <div class="wallet-hero"><div class="wallet-hero-copy"><div class="eyebrow">STEP 1 · YOUR WALLET</div><h1 id="wallet-title">Preparing your one-time<br>burner wallet.</h1><p id="wallet-lead" class="lead">Use this disposable Devnet wallet throughout the walkthrough. The tokens below are simulated-value assets.</p></div><div class="hero-visual" aria-hidden="true"><div class="visual-orbit orbit-one"></div><div class="visual-orbit orbit-two"></div><div class="wallet-glyph"><span class="glyph-shield">◇</span><i></i><b>DEVNET</b></div><span class="visual-node node-one"></span><span class="visual-node node-two"></span><span class="visual-node node-three"></span></div></div>
+    <button id="continue" class="primary wallet-continue" disabled>Continue to Saturn Earn</button>
+    <div class="wallet-preview panel">
+      <div class="panel-top"><div><span class="label">Session wallet</span><strong id="wallet-address">Generating securely…</strong></div><span class="pill">Devnet</span></div>
+      <div class="asset-list"><div class="asset"><span class="token sol">◎</span><div><strong>SOL</strong><small>Network fees</small></div><b id="sol-balance">—</b></div><div class="asset"><span class="token usdc">$</span><div><strong>USDC</strong><small>Devnet sandbox mint</small></div><b id="usdc-balance">—</b></div></div>
+      <div class="truth-note"><a id="funding-proof" target="_blank" rel="noopener">View wallet funding ↗</a></div>
+    </div>
+    <div class="step-guide"><span>Next</span><p>Choose how much test USDC to deposit into Saturn Earn.</p></div>
+
+  </section>
+
+  <section id="stage-earn" class="stage">
+    <div class="app-shell saturn">
+      <nav><div class="saturn-brand"><img src="/saturn-mark.svg" alt="">Saturn Earn</div><span class="nav-wallet"><span id="saturn-address"></span> · Devnet</span></nav>
+      <div class="product-grid"><div class="product-copy"><div class="eyebrow">STEP 2 · CHOOSE A VAULT</div><h1>Put your USDC<br>to work.</h1><p class="lead">Pick an amount. You will review it once before depositing.</p><div class="vault-item"><img src="/saturn-mark.svg" alt=""><div><span>NEW</span><strong>Saturn USDC Earn</strong><small>Flexible vault · simulated yield</small></div><b>7.2%<small>APY</small></b></div><div class="stats"><div><b>7.2%</b><span>Net APY</span></div><div><b>Anytime</b><span>Exit</span></div><div><b>USDC</b><span>Asset</span></div></div><div class="step-guide inline"><span>Next</span><p>Choose your deposit. Kelvara protection comes after.</p></div></div>
+      <div class="deposit-card panel"><div class="panel-top"><span class="label">You deposit</span><button id="max" class="text-button">Use max</button></div><div class="amount-row"><input id="deposit-amount" type="number" min="1" max="1000" step="1" value="750"><span>USDC</span></div><div class="balance-line"><span>Available</span><b id="available-usdc">—</b></div><button id="deposit" class="primary full">Review deposit</button><div class="action-explainer"><strong>One signature</strong><p>Moves this amount into the Saturn demo vault. Protection is added separately.</p></div></div></div>
+    </div>
+  </section>
+
+  <section id="stage-naked" class="stage">
+    <div class="saturn-position app-shell saturn"><nav><div class="saturn-brand"><img src="/saturn-mark.svg" alt="">Saturn Earn</div><span class="nav-wallet"><span id="position-wallet-address"></span> · Devnet</span></nav><div class="saturn-position-body"><div class="position-success"><span class="success-ring">✓</span><div><div class="eyebrow">SATURN EARN · POSITION</div><h2>Deposit confirmed</h2><a id="deposit-proof" target="_blank" rel="noopener">View transaction ↗</a></div></div><div class="saturn-position-card panel"><div class="position-head"><div><img class="protocol-logo" src="/saturn-mark.svg" alt=""><span><strong>USDC Earn</strong><small>Flexible vault · Devnet</small></span></div><span class="pill green">Earning</span></div><div class="position-metrics"><div><span>Position</span><b><span id="position-value">750.00</span> USDC</b></div><div><span>Expected APY</span><b>7.2%</b></div><div><span>Protection</span><b>Not added</b></div></div></div><div class="protection-recommendation"><img src="/kelvara-icon.png" alt=""><div><strong>Optional protection</strong><p>Monitor this position and return protected USDC if Saturn’s authority changes.</p></div><button id="skip-protection" class="text-button">Maybe later</button><button id="open-kelvara" class="quiet-button">Open Kelvara</button></div></div></div>
+  </section>
+
+  <section id="stage-kelvara" class="stage">
+    <div class="app-shell kelvara-app"><aside><div class="wordmark"><img class="kelvara-mark" src="/kelvara-icon.png" alt=""><span>Kelvara</span></div><button class="kelvara-nav selected" data-view="overview">Overview</button><button class="kelvara-nav" data-view="positions">Positions <span class="nav-count">1</span></button><button class="kelvara-nav" data-view="rules">Rules <span class="nav-count">1</span></button><button class="kelvara-nav" data-view="activity">Activity</button><div class="aside-foot">Devnet · Connected</div></aside>
+      <div class="kelvara-main"><header><div><span class="eyebrow">CONNECTED PORTFOLIO</span><h2 id="kelvara-view-title">Overview</h2></div><button class="connected" id="kelvara-wallet-button"><i></i><span id="kelvara-address"></span></button></header>
+      <div class="kelvara-view active" data-view-panel="overview">
+        <div class="portfolio-summary"><div class="summary-primary"><span>Portfolio value</span><strong id="portfolio-value">750.00 USDC</strong><small>1 protocol position on Devnet</small></div><div class="summary-stat"><span>Protected</span><strong id="overview-protected">0.00 USDC</strong></div><div class="summary-stat"><span>Unprotected</span><strong id="overview-unprotected">750.00 USDC</strong></div></div>
+        <div class="section-heading"><div><h3>Position discovery</h3><p>Kelvara scans this connected wallet for supported DeFi positions.</p></div><span class="sync-state"><i></i> Synced</span></div>
+        <button class="discovered-row" data-open-view="positions"><span class="protocol-cell"><img src="/saturn-mark.svg" alt=""><span><strong>Saturn Earn</strong><small>USDC vault · Devnet</small></span></span><span><small>Balance</small><b id="overview-position-value">750.00 USDC</b></span><span><small>APY</small><b>7.2%</b></span><span id="protect-status" class="pill amber">Unprotected</span><b aria-hidden="true">›</b></button>
+        <div id="protection-ready" class="protection-ready hidden"><div><strong>Protection is active.</strong><p>Your rule and exit permission are ready.</p></div><button id="watch-position" class="primary">Watch it in action</button></div>
+      </div>
+      <div class="kelvara-view" data-view-panel="positions"><div class="section-heading"><div><h3>Discovered positions</h3><p>Positions found in your connected Devnet wallet.</p></div><span class="sync-state"><i></i> 1 found</span></div><article class="position-record panel" data-position-record><div class="position-record-head"><span class="protocol-cell"><img src="/saturn-mark.svg" alt=""><span><strong>Saturn USDC Earn</strong><small>Flexible USDC vault</small></span></span><span id="position-view-status" class="pill amber">Not protected</span></div><div class="position-grid"><div><span>Deposited</span><b id="position-view-amount">750.00 USDC</b></div><div><span>Expected APY</span><b>7.2%</b></div><div><span>Network</span><b>Devnet</b></div><div><span>Wallet</span><b id="position-owner">—</b></div></div><div class="position-action"><div><strong id="protection-state-copy">No protection rule</strong><p>Protect this position against a confirmed authority change.</p></div><button id="activate" class="primary">Activate protection</button></div></article></div>
+      <div class="kelvara-view" data-view-panel="rules"><div class="section-heading"><div><h3>Protection rules</h3><p>Conditions Kelvara monitors for your positions.</p></div><span class="pill amber" id="rules-count-state">Draft</span></div><div class="rule-explainer"><strong>What this rule means</strong><p>Saturn has a special authority that can change how its vault works. Kelvara remembers the authority you trusted. If that address changes, Kelvara treats it as danger and returns your full protected deposit.</p></div><div class="rule-record panel"><div class="rule-record-head"><span><i class="rule-dot"></i><span><strong>Authority integrity</strong><small>Saturn USDC Earn</small></span></span><b id="rule-status">Not active</b></div><dl><div><dt>Trigger</dt><dd>Saturn’s current authority no longer matches the trusted address below.</dd></div><div><dt>Monitored authority address</dt><dd><code id="rule-authority">—</code></dd></div><div><dt>Action</dt><dd>Return the full protected USDC amount to your connected wallet.</dd></div><div><dt>Network</dt><dd>Solana Devnet</dd></div></dl><div class="rule-flow"><span>Monitor on-chain</span><i>→</i><span>Confirm change</span><i>→</i><span>Execute exit</span></div></div></div>
+      <div class="kelvara-view" data-view-panel="activity"><div class="section-heading"><div><h3>On-chain activity</h3><p>Confirmed transactions for this Devnet burner wallet.</p></div><span id="kelvara-activity-source">Select to load from Solana</span></div><div class="activity-surface panel"><div id="kelvara-activity-list"><p class="empty-activity">Loading confirmed Devnet transactions…</p></div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="stage-protection-review" class="stage protection-review-stage">
+    <div class="protection-verifier">
+      <img src="/kelvara-icon.png" alt="Kelvara">
+      <div class="eyebrow">KELVARA · VERIFY BEFORE SIGNING</div>
+      <h1>Confirm what protection<br>will authorize.</h1>
+      <p class="lead">Kelvara checks the transaction terms before your wallet signs the encoded Solana transactions.</p>
+      <div class="verifier-card panel">
+        <div><span>Connected wallet</span><code id="review-connected-wallet">—</code></div>
+        <div><span>Position activated</span><b id="review-protected-amount">750.00 USDC</b></div>
+        <div><span>Return transaction amount</span><b id="review-return-amount">750.00 USDC</b></div>
+        <div><span>Protection duration</span><b>12 months or until you revoke it</b></div>
+        <div><span>12-month fee · paid from wallet balance</span><b id="review-fee">7.50 USDC</b></div>
+        <div><span>Return wallet</span><code id="review-return-wallet">—</code></div>
+        <div><span>Fee treasury</span><a id="review-treasury" target="_blank" rel="noopener">—</a></div>
+      </div>
+      <div class="verifier-note"><strong>Durable-nonce exit permission</strong><p>Your wallet also pre-signs a specific evacuation transaction. Kelvara can use it only for this position after the monitored rule is breached. The fee transfer is visible in the activation transaction.</p></div>
+      <div class="verifier-actions"><button id="cancel-protection" class="quiet-button">Back</button><button id="continue-protection-signing" class="primary">Continue to wallet signature</button></div>
+    </div>
+  </section>
+
+  <section id="stage-monitor" class="stage timeline-stage">
+    <div class="timeline-shell">
+      <div class="eyebrow">STEP 4 · MONITORING</div><h1>Your position grows.<br>Kelvara watches.</h1><p class="lead">Each second represents one day. Yield is simulated; the monitoring check is live on Devnet.</p>
+      <div class="live-position panel"><div class="timeline-head"><span class="live-dot"><i></i> Monitoring live</span><span id="timeline-day">Day 1</span></div><div class="growth-value"><span id="timeline-value">750.00</span> <small>USDC</small></div><div class="growth-track"><i id="growth-fill"></i></div><div class="timeline-facts"><span><small>Amount protected</small><b id="timeline-principal">750.00 USDC</b></span><span><small>Simulated earnings</small><b id="timeline-yield">+0.00 USDC</b></span><span><small>Saturn status</small><b id="timeline-check">All checks passed</b></span></div></div>
+      <div class="monitor-note"><span class="scan-icon">⌁</span><p><strong>You can leave your wallet offline.</strong> The exit activates only if Saturn breaks a monitored rule.</p></div>
+    </div>
+  </section>
+
+  <section id="stage-incident" class="stage incident-stage">
+    <div class="incident-shell"><img class="incident-brand" src="/kelvara-icon.png" alt="Kelvara"><div class="eyebrow danger">SATURN CHANGED ON-CHAIN</div><h1 id="incident-title">A new authority can control the vault.</h1><p id="incident-explanation" class="lead">This was not part of your original deposit. Team did not announce the authority change. Kelvara marked the position unsafe and used your pre-approved exit.</p><div class="incident-evidence"><span><small>Event time</small><b id="incident-time">—</b></span><span><small>Transaction hash</small><code id="incident-hash">—</code></span></div><div class="change-card panel"><div><span>Before</span><b>Known authority</b><code id="known-authority">—</code></div><i>→</i><div><span>Now</span><b class="danger-text">Unexpected authority</b><code id="unexpected-authority">—</code></div></div><small class="scenario-note">Verified from the Devnet scenario capsule.</small><a id="incident-proof" target="_blank" rel="noopener">Verify change ↗</a><button id="open-breach" class="primary">See where your funds went</button></div>
+  </section>
+
+  <section id="stage-breach" class="stage breach-stage">
+    <div class="breach-shell"><img class="incident-brand secured-brand" src="/kelvara-icon.png" alt="Kelvara"><div class="eyebrow">KELVARA · EXIT COMPLETE</div><h1>Your protected funds<br>are back.</h1><p class="lead">Kelvara detected the change and returned your full protected amount. You did not need to reconnect or sign again.</p><div class="proof-grid"><div class="proof-card"><span>Why Kelvara acted</span><strong id="breach-name">Authority changed</strong><a id="breach-signature" target="_blank" rel="noopener">Detection proof ↗</a></div><div class="proof-card"><span>Returned</span><strong id="secured-amount">750.00 USDC</strong><a id="evacuation-signature" target="_blank" rel="noopener">Exit proof ↗</a></div></div><div class="plain-proof"><strong>No fee was taken during the exit.</strong><p>You paid once when protection started. The full protected amount returned to your wallet.</p></div><button id="reveal-wallet" class="primary">Show my wallet balance</button><div id="returned-wallet" class="returned-wallet hidden"><span class="token usdc">$</span><div><small>Back in your wallet</small><strong id="returned-balance">—</strong><span id="returned-address">—</span></div></div></div>
+  </section>
+</main>
+
+<aside id="wallet-drawer" class="drawer" aria-hidden="true"><div class="drawer-head"><div><div class="drawer-wallet"><span class="avatar"></span><span><small>THIRD-PARTY SOLANA WALLET</small><b id="drawer-wallet-id">…</b></span></div><h2>Transaction request</h2></div><button id="close-drawer" class="icon-button">×</button></div><div id="drawer-body"></div><div class="drawer-footer"><button id="sign" class="primary full">Confirm</button><p>This wallet signs bytes supplied by the requesting app.</p></div></aside><div id="scrim" class="scrim"></div>
+<div id="toast" class="toast"></div>
+<script type="module" src="/app.js"></script>
+</body></html>

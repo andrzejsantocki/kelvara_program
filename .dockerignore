@@ -1,0 +1,9 @@
+.git
+.runtime
+node_modules
+.env
+.env.*
+!.env.production.example
+**/*.log
+**/test*
+devnet-demo
