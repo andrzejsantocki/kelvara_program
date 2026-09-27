@@ -20,6 +20,12 @@ Other agents: do not modify these files without first recording a coordination n
 
 ## Phase log
 
+### Wallet-connect authentication timing — 2026-09-27
+
+Owned files: `subapps/kamino-monitor/{protection.js,web/app.js}`, focused tests, and this coordination note.
+
+Status: completed. The signed challenge now says `Kelvara wallet authentication` and appears immediately after explicit wallet connection, before position/protection views. UI explains that it proves ownership, moves no funds, and costs no fee. Focused tests 16/16; full suite 200/200; syntax checks passed.
+
 ### Phase 7 admin-rule backend — 2026-09-27
 
 Owned files: `subapps/kamino-monitor/server.js`, `test/kamino-monitor.test.js`, and `subapps/kamino-monitor/BACKEND-HANDOFF.md`. Preserve unrelated wallet-selector changes already present in the first two files.

@@ -32,6 +32,8 @@ test("armed variants use independent nonces, freeze exact shares, and never clos
 test("wallet authentication issues one-time challenges and verifies Ed25519 signatures",()=>{
  const keypair=Keypair.generate(),auth=createWalletAuth({ttlMs:60_000});
  const challenge=auth.issue(keypair.publicKey.toString());
+ assert.match(challenge.message,/^Kelvara wallet authentication\n/);
+ assert.doesNotMatch(challenge.message,/protection authentication/i);
  const signature=nacl.sign.detached(new TextEncoder().encode(challenge.message),keypair.secretKey);
  const session=auth.verify(keypair.publicKey.toString(),challenge.message,Buffer.from(signature).toString("base64"));
  assert.equal(auth.authorize(session.token),keypair.publicKey.toString());
@@ -118,6 +120,13 @@ test("frontend reuses backend-recovered nonce accounts before generating keys",a
  assert.match(app,/pendingNonceAccounts\?\.length===3/);
  assert.match(app,/Nonce setup recovered/);
  assert.match(app,/await inspect\(\);await loadProtection\(\)/);
+});
+
+test("explicit wallet connection authenticates before opening position views",async()=>{
+ const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
+ const connectBody=app.match(/async function connectWallet\(kind\)\{.*?\n(?=async function viewAddress)/s)?.[0]||"";
+ const authenticateAt=connectBody.indexOf("await authenticateProtection()"),inspectAt=connectBody.indexOf("await inspect()"),loadAt=connectBody.indexOf("await loadProtection()");
+ assert.ok(authenticateAt>=0&&authenticateAt<inspectAt&&inspectAt<loadAt);
 });
 
 test("confirmed manual evacuation finalizes the persisted armed record",async()=>{

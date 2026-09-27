@@ -5,7 +5,7 @@ import nacl from "tweetnacl";
 import { PublicKey } from "@solana/web3.js";
 import { encodeBase58 } from "../../src/platform/solana/base58.js";
 
-const AUTH_PREFIX="Kelvara protection authentication";
+const AUTH_PREFIX="Kelvara wallet authentication";
 
 function parseDecimal(value,decimals){
  const match=String(value).match(/^(\d+)(?:\.(\d+))?$/);if(!match)throw new Error("invalid_share_amount");
