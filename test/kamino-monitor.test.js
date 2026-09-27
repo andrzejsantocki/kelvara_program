@@ -79,6 +79,11 @@ test("backend enforces exact production CORS and preflight",async()=>{
  }finally{server.close();await once(server,"close")}
 });
 
+test("local frontend module requests are allowed only from the local app",async()=>{
+ const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"})});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try{const local=await fetch(`${base}/app.js`,{headers:{origin:"http://127.0.0.1:7650"}});assert.equal(local.status,200);assert.equal(local.headers.get("access-control-allow-origin"),"http://127.0.0.1:7650");assert.match(local.headers.get("content-security-policy"),/frame-ancestors 'self'/)}finally{server.close();await once(server,"close")}
+});
+
 test("wallet avatar opens explicit connect and disconnect controls",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(html,/id="wallet-chip"/);assert.match(html,/id="wallet-menu"/);assert.match(html,/id="wallet-connect-action"/);assert.match(html,/id="wallet-disconnect-action"/);
