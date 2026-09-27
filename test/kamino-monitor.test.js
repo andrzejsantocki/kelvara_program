@@ -218,7 +218,8 @@ test("stale wallet sessions cannot expose positions or safeguards",()=>{
 test("pasted address never becomes or restores wallet state",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(html,/Public Solana address/);assert.match(html,/id="inspect"[^>]*>Inspect position</);
- assert.match(app,/async function viewAddress/);assert.match(app,/setViewedAddress\(address\)/);assert.match(app,/\#inspect"\)\.onclick=viewAddress/);
+ assert.match(app,/async function viewAddress/);assert.match(app,/setViewedAddress\(address\)/);
+ assert.match(app,/if\(!animalIdenticonSvg\(address\)\)return toast\("Enter a valid Solana address"\)/);assert.match(app,/\#inspect"\)\.onclick=viewAddress/);
  const viewBody=app.match(/async function viewAddress\(\)\{([^}]|}(?!\n))*}/s)?.[0]||"";
  assert.doesNotMatch(viewBody,/rememberWallet|walletProvider|provider\(|\.connect\(|localStorage/);
  assert.match(app,/function setViewedAddress/);assert.match(app,/localStorage\.removeItem\("kelvara_prod_wallet"\)/);
