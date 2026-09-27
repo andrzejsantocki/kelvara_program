@@ -8,7 +8,7 @@ import { flagsFor, validateTtl, explorerUrl, evidenceFor } from "./client.js";
 const root=join(dirname(fileURLToPath(import.meta.url)),"web");
 const web3Bundle=join(dirname(fileURLToPath(import.meta.url)),"node_modules/@solana/web3.js/lib/index.iife.min.js");
 const splBundle=join(dirname(fileURLToPath(import.meta.url)),"node_modules/@solana/spl-token/lib/cjs/index.js");
-const assets=new Map([["/",["index.html","text/html; charset=utf-8"]],["/app.js",["app.js","text/javascript; charset=utf-8"]],["/styles.css",["styles.css","text/css; charset=utf-8"]],["/saturn-mark.svg",["saturn-mark.svg","image/svg+xml"]],["/kelvara-icon.png",["kelvara-icon.png","image/png"]]]);
+const assets=new Map([["/",["index.html","text/html; charset=utf-8"]],["/app.js",["app.js","text/javascript; charset=utf-8"]],["/styles.css",["styles.css","text/css; charset=utf-8"]],["/saturn-mark.svg",["saturn-mark.svg","image/svg+xml"]],["/kelvara.svg",["kelvara.svg","image/svg+xml"]],["/kelvara-icon.png",["kelvara-icon.png","image/png"]]]);
 function json(response,status,value){response.writeHead(status,{"content-type":"application/json; charset=utf-8","cache-control":"no-store"});response.end(JSON.stringify(value))}
 async function body(request){const chunks=[];for await(const chunk of request){chunks.push(chunk);if(chunks.reduce((n,c)=>n+c.length,0)>100_000)throw new Error("request_too_large")}if(!chunks.length)return{};return JSON.parse(Buffer.concat(chunks).toString("utf8"))}
 function clientId(request){return request.headers["cf-connecting-ip"]||request.headers["x-forwarded-for"]?.split(",")[0].trim()||request.socket.remoteAddress||"unknown"}
