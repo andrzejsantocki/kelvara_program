@@ -264,6 +264,8 @@ test("production UI has no obsolete product navbar or numbered demo journey",()=
  assert.match(css,/#stage-connect\.active\{[^}]*display:flex[^}]*flex-direction:column[^}]*overflow:visible/);
  assert.match(css,/#stage-connect\.active \.authority-bg\{[^}]*position:relative[^}]*order:2/);
  assert.doesNotMatch(app,/\.product-nav button/);
+ assert.match(html,/<div class="top-actions"><span id="health"[\s\S]*<div id="header-connect"/);
+ assert.match(css,/\.top-actions\{[^}]*margin-left:auto[^}]*\}/);
 });
 
 test("production UI provides wallet inspection and monitoring surfaces",async()=>{
