@@ -60,6 +60,22 @@ test("serves production health, config and inspection API",async()=>{
   assert.equal((await fetch(`${base}/healthz`)).status,200);
   const config=await(await fetch(`${base}/api/config`)).json();assert.equal(config.network,"mainnet");assert.equal(config.vault,KAMINO.vault);
   const inspected=await(await fetch(`${base}/api/inspect/${WALLET}`)).json();assert.equal(inspected.position.asset,"USDG");
+  const page=await fetch(base);assert.match(page.headers.get("content-security-policy"),/default-src 'self'/);assert.match(page.headers.get("content-security-policy"),/connect-src 'self' https:\/\/api\.kelvara\.xyz/);
+  for(const asset of ["authority-flow-background.svg","steakhouse-usdg.svg","kamino.svg"]){const response=await fetch(`${base}/assets/${asset}`);assert.equal(response.status,200);assert.match(response.headers.get("content-type"),/image\/svg\+xml/)}
+ }finally{server.close();await once(server,"close")}
+});
+
+test("public frontend targets the dedicated API origin",()=>{
+ const root=new URL("../",import.meta.url),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ assert.match(app,/https:\/\/api\.kelvara\.xyz/);assert.match(app,/function apiUrl/);assert.match(app,/fetch\(apiUrl\(path\)/);
+});
+
+test("backend enforces exact production CORS and preflight",async()=>{
+ const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"}),allowedOrigins:["https://app.kelvara.xyz"]});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try{
+  const allowed=await fetch(`${base}/healthz`,{headers:{origin:"https://app.kelvara.xyz"}});assert.equal(allowed.status,200);assert.equal(allowed.headers.get("access-control-allow-origin"),"https://app.kelvara.xyz");
+  const denied=await fetch(`${base}/healthz`,{headers:{origin:"https://evil.example"}});assert.equal(denied.status,403);assert.equal(denied.headers.get("access-control-allow-origin"),null);
+  const preflight=await fetch(`${base}/api/auth/challenge`,{method:"OPTIONS",headers:{origin:"https://app.kelvara.xyz","access-control-request-method":"POST","access-control-request-headers":"content-type,authorization"}});assert.equal(preflight.status,204);assert.equal(preflight.headers.get("access-control-allow-methods"),"GET, POST, OPTIONS");
  }finally{server.close();await once(server,"close")}
 });
 
@@ -78,7 +94,7 @@ test("wallet selector offers Phantom Solflare and Backpack only",()=>{
 
 test("pasted address never becomes or restores wallet state",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
- assert.match(html,/View any public address/);assert.match(html,/id="inspect"[^>]*>View position</);
+ assert.match(html,/Public Solana address/);assert.match(html,/id="inspect"[^>]*>Inspect position</);
  assert.match(app,/async function viewAddress/);assert.match(app,/setViewedAddress\(address\)/);assert.match(app,/\#inspect"\)\.onclick=viewAddress/);
  const viewBody=app.match(/async function viewAddress\(\)\{([^}]|}(?!\n))*}/s)?.[0]||"";
  assert.doesNotMatch(viewBody,/rememberWallet|walletProvider|provider\(|\.connect\(|localStorage/);
@@ -88,16 +104,26 @@ test("pasted address never becomes or restores wallet state",()=>{
 
 test("evacuation requires connected wallet review simulation and explicit signature",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const js=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
- assert.match(html,/Prepare evacuation/);assert.match(html,/Evacuation review/);assert.match(html,/Destination wallet/);assert.match(html,/Priority fee cap/);assert.match(html,/Simulation/);assert.match(html,/Sign and evacuate/);
+ assert.match(html,/Prepare protection transaction/);assert.match(html,/Evacuation review/);assert.match(html,/Destination wallet/);assert.match(html,/Priority fee cap/);assert.match(html,/Simulation/);assert.match(html,/Sign and evacuate/);
  assert.match(js,/walletSource==="address"/);assert.match(js,/\/api\/evacuation\/prepare/);assert.match(js,/signTransaction/);assert.match(js,/\/api\/evacuation\/submit/);assert.match(html,/durable nonce/i);assert.match(html,/Fast evacuation is not armed/);
 });
 
-test("found position leads to monitoring preview with grouped invariants",()=>{
+test("found position leads to selected-position safeguards",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");
- assert.match(html,/Kelvara found this Kamino position/);assert.match(html,/Preview monitoring/);
- assert.match(html,/PROGRAM SAFETY/);assert.match(html,/Who can change the program code/);assert.match(html,/Program deployment record/);
- assert.match(html,/VAULT CONTROLS/);assert.match(html,/MARKET DEPENDENCIES/);assert.match(html,/Coming next/);
+ assert.match(html,/Positions discovered for this wallet/);assert.match(html,/Preview monitoring/);
+ assert.match(html,/Upgrade authority/);assert.match(html,/Who can change the monitored program code/);assert.match(html,/Program deployment record/);
+ assert.match(html,/Current address/);assert.match(html,/Expected baseline/);assert.match(html,/Next preannounced address/);assert.match(html,/Last checked/);
  assert.doesNotMatch(html,/Kelvara accepts only shares from this exact vault/);
+});
+
+test("production UI implements the approved assurance-canvas design",()=>{
+ const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const css=readFileSync(new URL("subapps/kamino-monitor/web/styles.css",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ assert.match(html,/authority-flow-background\.svg/);assert.match(html,/See what controls your onchain positions/);
+ assert.match(html,/id="position-list"/);assert.match(html,/id="safeguard-authority"/);assert.match(html,/Keep this position under live watch/);
+ assert.match(html,/Steakhouse USDG High Yield/);assert.match(html,/steakhouse-usdg\.svg/);assert.match(html,/kamino\.svg/);
+ assert.doesNotMatch(html,/Start over/);assert.doesNotMatch(html,/7D APY/);assert.doesNotMatch(html,/Inspect evidence/);assert.doesNotMatch(html,/Check now/);
+ assert.match(html,/Prepare protection transaction/);assert.match(css,/\.portfolio-shell/);assert.match(css,/prefers-reduced-motion/);
+ assert.match(app,/syncDiagram/);assert.match(app,/safeguard-summary/);
 });
 
 test("production UI provides a guided wallet-to-monitoring journey",async()=>{
