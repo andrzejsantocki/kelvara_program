@@ -38,6 +38,24 @@ test("raises authority breach when ProgramData authority differs",async()=>{
  assert.equal(result.authority.current,changed);
 });
 
+test("dust check excludes token positions at exactly 0.001",async()=>{
+ const result=await createKaminoInspector({fetchImpl:fixtureFetch({shares:"0.001",rate:"1"}),rpcUrl:"https://rpc"}).inspect(WALLET);
+ assert.equal(result.position,null);
+ assert.equal(result.authority,null);
+ assert.equal(result.sourceStatus,"dust_filtered");
+ assert.match(result.message,/dust check/i);
+ const root=new URL("../",import.meta.url),html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ assert.match(html,/id="pending-title"/);assert.match(app,/data\.sourceStatus==="dust_filtered"/);assert.match(app,/Dust check/);
+});
+
+test("dust check uses underlying token amount rather than vault shares",async()=>{
+ const dust=await createKaminoInspector({fetchImpl:fixtureFetch({shares:"0.002",rate:"0.5"}),rpcUrl:"https://rpc"}).inspect(WALLET);
+ assert.equal(dust.position,null);
+ assert.equal(dust.sourceStatus,"dust_filtered");
+ const visible=await createKaminoInspector({fetchImpl:fixtureFetch({shares:"0.0005",rate:"3"}),rpcUrl:"https://rpc"}).inspect(WALLET);
+ assert.equal(visible.position.underlyingAmount,"0.0015");
+});
+
 test("valid wallet with no indexed target position reports pending index evidence",async()=>{
  const fetchImpl=async url=>({ok:true,status:200,json:async()=>String(url).includes("/positions")?[]:{}});
  const result=await createKaminoInspector({fetchImpl,rpcUrl:"https://rpc"}).inspect(WALLET);
