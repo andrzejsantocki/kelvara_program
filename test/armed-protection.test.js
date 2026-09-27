@@ -116,4 +116,5 @@ test("frontend reuses backend-recovered nonce accounts before generating keys",a
  const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
  assert.match(app,/protectionStatus\?\.pendingNonceAccounts/);
  assert.match(app,/pendingNonceAccounts\?\.length===3/);
+ assert.match(app,/Nonce setup recovered/);
 });
