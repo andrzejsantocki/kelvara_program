@@ -15,7 +15,7 @@ git -C "$PUBLISH" fetch origin -q
 git -C "$PUBLISH" reset --hard origin/main -q
 rm -rf "$PUBLISH/assets" "$PUBLISH/vendor"
 mkdir -p "$PUBLISH/assets" "$PUBLISH/vendor"
-cp "$WEB/index.html" "$WEB/app.js" "$WEB/styles.css" "$PUBLISH/"
+cp "$WEB/index.html" "$WEB/app.js" "$WEB/animal-identicon.js" "$WEB/styles.css" "$PUBLISH/"
 cp -R "$WEB/assets/." "$PUBLISH/assets/"
 cp "$ROOT/node_modules/@solana/web3.js/lib/index.iife.min.js" "$PUBLISH/vendor/solana-web3.min.js"
 printf 'app.kelvara.xyz\n' > "$PUBLISH/CNAME"

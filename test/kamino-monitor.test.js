@@ -161,13 +161,25 @@ test("backend enforces exact production CORS and preflight",async()=>{
 
 test("local frontend module requests are allowed only from the local app",async()=>{
  const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"})});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
- try{const local=await fetch(`${base}/app.js`,{headers:{origin:"http://127.0.0.1:7650"}});assert.equal(local.status,200);assert.equal(local.headers.get("access-control-allow-origin"),"http://127.0.0.1:7650");assert.match(local.headers.get("content-security-policy"),/frame-ancestors 'self'/)}finally{server.close();await once(server,"close")}
+ try{const local=await fetch(`${base}/app.js`,{headers:{origin:"http://127.0.0.1:7650"}});assert.equal(local.status,200);assert.equal(local.headers.get("access-control-allow-origin"),"http://127.0.0.1:7650");assert.match(local.headers.get("content-security-policy"),/frame-ancestors 'self'/);const identicon=await fetch(`${base}/animal-identicon.js`,{headers:{origin:"http://127.0.0.1:7650"}});assert.equal(identicon.status,200);assert.match(identicon.headers.get("content-type"),/text\/javascript/)}finally{server.close();await once(server,"close")}
 });
 
 test("wallet avatar opens explicit connect and disconnect controls",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(html,/id="wallet-chip"/);assert.match(html,/id="wallet-menu"/);assert.match(html,/id="wallet-connect-action"/);assert.match(html,/id="wallet-disconnect-action"/);
  assert.match(app,/toggleWalletMenu/);assert.match(app,/disconnectWallet/);assert.match(app,/\.disconnect\(\)/);assert.match(app,/aria-expanded/);
+});
+
+test("wallet avatar uses the independent deterministic animal identicon module",()=>{
+ const root=new URL("../",import.meta.url),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8"),css=readFileSync(new URL("subapps/kamino-monitor/web/styles.css",root),"utf8"),deploy=readFileSync(new URL("subapps/kamino-monitor/deploy-pages.sh",root),"utf8");
+ assert.match(app,/import\{animalIdenticonSvg\}from"\.\/animal-identicon\.js"/);
+ assert.match(app,/function updateWalletAvatar\(address,viewed=false\)/);
+ assert.match(app,/animalIdenticonSvg\(address\)/);
+ assert.match(app,/avatar\.replaceChildren\(svg\)/);
+ assert.match(app,/updateWalletAvatar\(walletAddress,walletSource==="address"\)/);
+ assert.match(css,/\.avatar\.has-identicon/);
+ assert.match(css,/\.avatar>svg/);
+ assert.match(deploy,/animal-identicon\.js/);
 });
 
 test("disconnected header button opens wallet selector without duplicate account menu",()=>{

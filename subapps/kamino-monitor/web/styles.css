@@ -41,8 +41,15 @@
 .wallet-progress.success{border-color:#a9cbb7;background:#edf7f0}.wallet-progress.success .progress-mark{background:#cbeed7}.wallet-progress.success .progress-mark i{width:12px;height:7px;border:solid var(--green);border-width:0 0 2px 2px;border-radius:0;background:transparent;transform:rotate(-45deg) translate(1px,-1px)}
 .wallet-progress.error{border-color:#dab3ad;background:#fff1ef}.wallet-progress.error .progress-mark{background:#f1cec9}.wallet-progress.error .progress-mark i{width:12px;height:2px;border-radius:0;background:var(--red);transform:rotate(45deg)}
 .wallet-privacy{margin:16px 0 0;text-align:center;color:var(--muted);font-size:10px}
+
+/* Deterministic wallet animal identicons */
+.wallet-chip{display:flex;align-items:center;gap:9px}
+.avatar{display:block;flex:0 0 10px;width:10px;height:10px;border-radius:50%;background:#8b9189;overflow:hidden;transition:width .16s ease,height .16s ease,border-radius .16s ease}
+.avatar.has-identicon{flex-basis:28px;width:28px;height:28px;border-radius:8px;background:transparent;box-shadow:0 0 0 1px #ffffff26}
+.avatar.viewing{box-shadow:0 0 0 2px var(--paper),0 0 0 3px var(--muted)}
+.avatar>svg{display:block;width:100%;height:100%}
 @keyframes wallet-spin{to{transform:rotate(360deg)}}
-@media(max-width:520px){.wallet-selector-modal{padding:12px;align-items:flex-end}.wallet-selector-card{padding:24px 18px 20px}.wallet-selector-card .selector-head{margin-bottom:20px}.wallet-selector-card .selector-head strong{font-size:22px}.wallet-options>button{min-height:66px}.wallet-progress{margin-top:14px}}
+@media(max-width:520px){.wallet-selector-modal{padding:12px;align-items:flex-end}.wallet-selector-card{padding:24px 18px 20px}.wallet-selector-card .selector-head{margin-bottom:20px}.wallet-selector-card .selector-head strong{font-size:22px}.wallet-options>button{min-height:66px}.wallet-progress{margin-top:14px}.avatar.has-identicon{flex-basis:24px;width:24px;height:24px;border-radius:7px}}
 @media(prefers-reduced-motion:reduce){.wallet-options>button{transition:none}.wallet-progress.connecting .progress-mark i{animation:none;border-top-color:#515c37}}
 
 body.modal-open{overflow:hidden}
