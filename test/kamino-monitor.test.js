@@ -204,7 +204,9 @@ test("pasted address never becomes or restores wallet state",()=>{
  const viewBody=app.match(/async function viewAddress\(\)\{([^}]|}(?!\n))*}/s)?.[0]||"";
  assert.doesNotMatch(viewBody,/rememberWallet|walletProvider|provider\(|\.connect\(|localStorage/);
  assert.match(app,/function setViewedAddress/);assert.match(app,/localStorage\.removeItem\("kelvara_prod_wallet"\)/);
- assert.doesNotMatch(app,/localStorage\.getItem\("kelvara_prod_wallet"\)/);
+ assert.match(app,/connect\(\{onlyIfTrusted:true\}\)/);
+ assert.match(app,/localStorage\.getItem\("kelvara_prod_wallet"\)/);
+ assert.match(app,/current!==savedAddress/);
 });
 
 test("evacuation requires connected wallet review simulation and explicit signature",()=>{
