@@ -115,6 +115,17 @@ test("wallet selector offers Phantom Solflare and Backpack only",()=>{
  assert.match(app,/connectWallet/);assert.match(app,/window\.phantom\?\.solana/);assert.match(app,/window\.solflare/);assert.match(app,/window\.backpack/);
 });
 
+test("stale wallet sessions cannot expose positions or safeguards",()=>{
+ const root=new URL("../",import.meta.url),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ assert.match(app,/function connectedWalletIsCurrent/);
+ assert.match(app,/function canViewStage/);
+ assert.match(app,/if\(!canViewStage\(name\)\)/);
+ assert.match(app,/provider\.on\("disconnect"/);
+ assert.match(app,/provider\.on\("accountChanged"/);
+ assert.match(app,/clearLocalState\(\)/);
+ assert.match(app,/Wallet session ended/);
+});
+
 test("pasted address never becomes or restores wallet state",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(html,/Public Solana address/);assert.match(html,/id="inspect"[^>]*>Inspect position</);
