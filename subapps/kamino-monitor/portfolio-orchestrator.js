@@ -1,3 +1,5 @@
+import { validateSolanaAddress } from "../../src/domains/discovery/wallet.js";
+
 const MAX_URL_LENGTH = 2048;
 
 function requireUrl(value, name) {
@@ -49,11 +51,12 @@ function normalizeReceipts(body) {
   return body.receipts;
 }
 
-export function createPortfolioOrchestrator({ configUrl, receiptsUrl, token, controlPlaneClient, observationHubClient, fetchImpl = fetch, adapters = {} } = {}) {
-  const configClient = controlPlaneClient || createControlPlaneClient({ url: configUrl, token, fetchImpl });
-  const receiptsClient = observationHubClient || createObservationHubClient({ url: receiptsUrl, token, fetchImpl });
+export function createPortfolioOrchestrator({ configUrl, receiptsUrl, token, controlPlaneToken = token, observationHubToken = token, controlPlaneClient, observationHubClient, fetchImpl = fetch, adapters = {} } = {}) {
+  const configClient = controlPlaneClient || createControlPlaneClient({ url: configUrl, token: controlPlaneToken, fetchImpl });
+  const receiptsClient = observationHubClient || createObservationHubClient({ url: receiptsUrl, token: observationHubToken, fetchImpl });
   return {
     async getPortfolio(wallet) {
+      if (!validateSolanaAddress(wallet)) throw new Error("invalid_wallet");
       const config = normalizeConfig(await configClient.readActive(wallet));
       const protocols = config.protocols;
       const targetIds = protocols.flatMap(protocol => Array.isArray(protocol.targetIds) ? protocol.targetIds : []);
