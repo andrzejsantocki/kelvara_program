@@ -1,51 +1,66 @@
 import { validateSolanaAddress } from "../../src/domains/discovery/wallet.js";
 
 const MAX_URL_LENGTH = 2048;
+const MANIFEST_FIELDS = new Set(["policyRevision", "protocols", "targets"]);
+const MANIFEST_PROTOCOL_FIELDS = new Set(["id", "name", "chain", "status", "discoveryAdapterId", "discoveryAdapterVersion"]);
+const MANIFEST_TARGET_FIELDS = new Set(["id", "protocolId", "kind", "name", "status"]);
 const CONFIG_FIELDS = new Set(["policyRevision", "protocols", "targets", "bindings", "ruleVersions"]);
-const PROTOCOL_FIELDS = new Set(["discoveryAdapterId", "discoveryAdapterVersion", "targetIds"]);
+const CONFIG_PROTOCOL_FIELDS = new Set(["id", "name", "chain", "status", "discoveryAdapterId", "discoveryAdapterVersion", "targetIds"]);
+const CONFIG_TARGET_FIELDS = new Set(["id", "protocolId", "kind", "name", "status"]);
 const BINDING_FIELDS = new Set(["bindingId", "targetId", "ruleId", "ruleVersion", "display"]);
 const RECEIPT_FIELDS = new Set(["bindingId", "targetId", "ruleId", "ruleVersion", "policyRevision", "result", "receiptId", "idempotencyKey"]);
+
 function requireUrl(value, name) { if (typeof value !== "string" || value.length === 0 || value.length > MAX_URL_LENGTH) throw new Error(`${name}_invalid`); const url = new URL(value); if (!["http:", "https:"].includes(url.protocol)) throw new Error(`${name}_invalid`); return url; }
 function requireToken(value) { if (typeof value !== "string" || value.length < 32) throw new Error("internal_token_invalid"); return value; }
-async function postJson(url, token, payload, fetchImpl, label) {
-  const response = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(payload), signal: AbortSignal.timeout(2000) });
-  if (!response.ok) throw new Error(`${label}_unavailable`); let body; try { body = await response.json(); } catch { throw new Error(`${label}_malformed`); }
-  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error(`${label}_malformed`); return body;
-}
+async function postJson(url, token, payload, fetchImpl, label) { const response = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(payload), signal: AbortSignal.timeout(2000) }); if (!response.ok) throw new Error(`${label}_unavailable`); let body; try { body = await response.json(); } catch { throw new Error(`${label}_malformed`); } if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error(`${label}_malformed`); return body; }
 function closedObject(value, fields, label) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !fields.has(key))) throw new Error(`${label}_malformed`); return value; }
-export function createControlPlaneClient({ url, token, fetchImpl = fetch }) {
-  const base = requireUrl(url, "control_plane_url"); requireToken(token);
-  return {
-    async readManifest(wallet) { const endpoint = new URL(`/internal/v1/config/discovery-manifest?wallet=${encodeURIComponent(wallet)}`, base).toString(); const response = await fetchImpl(endpoint, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) }); if (!response.ok) throw new Error("control_plane_unavailable"); try { return await response.json(); } catch { throw new Error("control_plane_malformed"); } },
-    async readActive(targetIds) { return postJson(new URL("/internal/v1/config/batch-read", base).toString(), token, { targetIds }, fetchImpl, "control_plane"); },
-  };
-}
-export function createObservationHubClient({ url, token, fetchImpl = fetch }) {
-  const endpoint = new URL("/internal/evaluation-receipts/batch-read", requireUrl(url, "observation_hub_url")).toString(); requireToken(token);
-  return { async readLatest(targetIds, policyRevision) { return postJson(endpoint, token, { policyRevision, targetIds }, fetchImpl, "observation_hub"); } };
+function uniqueIds(items, field = "id") { const ids = items.map(item => item[field]); if (ids.some(id => typeof id !== "string" || !id) || new Set(ids).size !== ids.length) throw new Error("control_plane_malformed"); }
+function validVersion(value) { return Number.isSafeInteger(value) && value >= 0; }
+function validateManifest(body) {
+  const manifest = closedObject(body, MANIFEST_FIELDS, "control_plane");
+  if (!Number.isSafeInteger(manifest.policyRevision) || manifest.policyRevision < 0 || !Array.isArray(manifest.protocols) || !Array.isArray(manifest.targets)) throw new Error("control_plane_malformed");
+  manifest.protocols.forEach(protocol => { closedObject(protocol, MANIFEST_PROTOCOL_FIELDS, "control_plane"); if (!["name", "chain", "status", "discoveryAdapterId"].every(key => typeof protocol[key] === "string" && protocol[key])) throw new Error("control_plane_malformed"); if (!validVersion(protocol.discoveryAdapterVersion)) throw new Error("control_plane_malformed"); });
+  manifest.targets.forEach(target => { closedObject(target, MANIFEST_TARGET_FIELDS, "control_plane"); if (!["protocolId", "kind", "name", "status"].every(key => typeof target[key] === "string" && target[key])) throw new Error("control_plane_malformed"); });
+  uniqueIds(manifest.protocols); uniqueIds(manifest.targets);
+  const protocols = new Map(manifest.protocols.map(protocol => [protocol.id, protocol]));
+  if (manifest.protocols.length === 0 || manifest.targets.length === 0 || manifest.protocols.every(protocol => protocol.status !== "active") || manifest.targets.every(target => target.status !== "active")) throw new Error("active_targets_unavailable");
+  for (const target of manifest.targets) if (!protocols.has(target.protocolId)) throw new Error("control_plane_malformed");
+  return manifest;
 }
 function normalizeConfig(body) {
-  const config = body.config || body; closedObject(config, CONFIG_FIELDS, "control_plane");
-  if (!Number.isSafeInteger(config.policyRevision) || !Array.isArray(config.protocols) || !Array.isArray(config.targets) || !Array.isArray(config.bindings) || !config.ruleVersions || Array.isArray(config.ruleVersions)) throw new Error("control_plane_malformed");
-  config.protocols.forEach(protocol => { closedObject(protocol, PROTOCOL_FIELDS, "control_plane"); if (typeof protocol.discoveryAdapterId !== "string" || typeof protocol.discoveryAdapterVersion !== "string" || !Array.isArray(protocol.targetIds)) throw new Error("control_plane_malformed"); });
+  const config = closedObject(body.config || body, CONFIG_FIELDS, "control_plane");
+  if (!Number.isSafeInteger(config.policyRevision) || config.policyRevision < 0 || !Array.isArray(config.protocols) || !Array.isArray(config.targets) || !Array.isArray(config.bindings) || !config.ruleVersions || Array.isArray(config.ruleVersions)) throw new Error("control_plane_malformed");
+  config.protocols.forEach(protocol => { closedObject(protocol, CONFIG_PROTOCOL_FIELDS, "control_plane"); if (!["id", "name", "chain", "status", "discoveryAdapterId"].every(key => typeof protocol[key] === "string" && protocol[key]) || !validVersion(protocol.discoveryAdapterVersion) || !Array.isArray(protocol.targetIds)) throw new Error("control_plane_malformed"); });
+  config.targets.forEach(target => { closedObject(target, CONFIG_TARGET_FIELDS, "control_plane"); if (!["id", "protocolId", "kind", "name", "status"].every(key => typeof target[key] === "string" && target[key])) throw new Error("control_plane_malformed"); });
+  uniqueIds(config.protocols); uniqueIds(config.targets); config.protocols.forEach(protocol => { if (new Set(protocol.targetIds).size !== protocol.targetIds.length || protocol.targetIds.some(id => typeof id !== "string")) throw new Error("control_plane_malformed"); });
   config.bindings.forEach(binding => { closedObject(binding, BINDING_FIELDS, "control_plane"); if (!["bindingId", "targetId", "ruleId", "ruleVersion"].every(key => binding[key] !== undefined)) throw new Error("control_plane_malformed"); });
   return config;
 }
-function normalizeReceipts(body) { if (!Array.isArray(body.receipts) || Object.keys(body).some(key => key !== "receipts")) throw new Error("observation_hub_malformed"); body.receipts.forEach(receipt => { closedObject(receipt, RECEIPT_FIELDS, "observation_hub"); }); return body.receipts; }
+function validateAgainstManifest(config, manifest) {
+  if (config.policyRevision !== manifest.policyRevision) throw new Error("control_plane_malformed");
+  const manifestProtocols = new Map(manifest.protocols.map(item => [item.id, item]));
+  const manifestTargets = new Map(manifest.targets.map(item => [item.id, item]));
+  if (config.protocols.length !== manifest.protocols.length || config.targets.length !== manifest.targets.length) throw new Error("control_plane_malformed");
+  for (const protocol of config.protocols) { const expected = manifestProtocols.get(protocol.id); if (!expected || protocol.discoveryAdapterId !== expected.discoveryAdapterId || protocol.discoveryAdapterVersion !== expected.discoveryAdapterVersion || protocol.name !== expected.name || protocol.chain !== expected.chain || protocol.status !== expected.status) throw new Error("control_plane_malformed"); const expectedIds = manifest.targets.filter(target => target.protocolId === protocol.id).map(target => target.id); if (expectedIds.length !== protocol.targetIds.length || expectedIds.some((id, index) => id !== protocol.targetIds[index])) throw new Error("control_plane_malformed"); }
+  for (const target of config.targets) { const expected = manifestTargets.get(target.id); if (!expected || JSON.stringify(target) !== JSON.stringify(expected)) throw new Error("control_plane_malformed"); }
+  if (config.targets.some(target => !manifestTargets.has(target.id))) throw new Error("control_plane_malformed");
+  return config;
+}
+function normalizeReceipts(body) { if (!body || !Array.isArray(body.receipts) || Object.keys(body).some(key => key !== "receipts")) throw new Error("observation_hub_malformed"); body.receipts.forEach(receipt => { closedObject(receipt, RECEIPT_FIELDS, "observation_hub"); }); return body.receipts; }
 function normalizePosition(discovered) { return discovered?.position || null; }
+
+export function createControlPlaneClient({ url, token, fetchImpl = fetch }) { const base = requireUrl(url, "control_plane_url"); requireToken(token); return { async readManifest() { const endpoint = new URL("/internal/v1/config/discovery-manifest", base).toString(); const response = await fetchImpl(endpoint, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) }); if (!response.ok) throw new Error("control_plane_unavailable"); try { return await response.json(); } catch { throw new Error("control_plane_malformed"); } }, async readActive(targetIds) { return postJson(new URL("/internal/v1/config/batch-read", base).toString(), token, { targetIds }, fetchImpl, "control_plane"); } }; }
+export function createObservationHubClient({ url, token, fetchImpl = fetch }) { const endpoint = new URL("/internal/evaluation-receipts/batch-read", requireUrl(url, "observation_hub_url")).toString(); requireToken(token); return { async readLatest(targetIds, policyRevision) { return postJson(endpoint, token, { policyRevision, targetIds }, fetchImpl, "observation_hub"); } }; }
+
 export function createPortfolioOrchestrator({ configUrl, receiptsUrl, token, controlPlaneToken = token, observationHubToken = token, controlPlaneClient, observationHubClient, manifestClient, fetchImpl = fetch, adapters = {} } = {}) {
-  const configClient = controlPlaneClient || createControlPlaneClient({ url: configUrl, token: controlPlaneToken, fetchImpl });
-  const receiptsClient = observationHubClient || createObservationHubClient({ url: receiptsUrl, token: observationHubToken, fetchImpl });
-  const discoveryClient = manifestClient || configClient;
+  const configClient = controlPlaneClient || createControlPlaneClient({ url: configUrl, token: controlPlaneToken, fetchImpl }); const receiptsClient = observationHubClient || createObservationHubClient({ url: receiptsUrl, token: observationHubToken, fetchImpl }); const discoveryClient = manifestClient || configClient;
   return { async getPortfolio(wallet) {
     if (!validateSolanaAddress(wallet)) throw new Error("invalid_wallet");
-    const manifest = await (discoveryClient.read ? discoveryClient.read(wallet) : discoveryClient.readManifest(wallet)); const protocols = manifest?.protocols;
-    if (!Array.isArray(protocols)) throw new Error("control_plane_malformed");
-    const targetIds = protocols.flatMap(protocol => Array.isArray(protocol.targetIds) ? protocol.targetIds : []); if (targetIds.length === 0) throw new Error("active_targets_unavailable");
-    const config = normalizeConfig(await configClient.readActive(targetIds)); if (config.policyRevision !== manifest.policyRevision) throw new Error("control_plane_malformed");
-    const receipts = normalizeReceipts(await receiptsClient.readLatest(targetIds, config.policyRevision)); const positions = []; const protocolStatuses = [];
-    for (const protocol of config.protocols) { const key = `${protocol.discoveryAdapterId}@${protocol.discoveryAdapterVersion}`, adapter = adapters[key]; if (!adapter) { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unsupported" }); continue; } try { const discovered = await adapter.discover(wallet, protocol); const position = normalizePosition(discovered); if (position) positions.push(position); protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: position ? "available" : "degraded" }); } catch { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unavailable" }); } }
-    const safeguards = config.bindings.map(binding => { const receipt = receipts.find(item => item.bindingId === binding.bindingId && item.targetId === binding.targetId && item.ruleId === binding.ruleId && item.ruleVersion === binding.ruleVersion && item.policyRevision === config.policyRevision); return { ...binding, ...(receipt ? { result: receipt.result, receiptId: receipt.receiptId } : { result: "unknown", reason: "missing_receipt", receiptId: null }) }; });
-    const satisfied = safeguards.filter(item => item.result !== "unknown").length; return { policyRevision: config.policyRevision, positions, safeguards, protocolStatuses, coverage: { state: satisfied === safeguards.length ? "complete" : "partial", expected: safeguards.length, satisfied } };
+    const manifest = validateManifest(await (discoveryClient.read ? discoveryClient.read(wallet) : discoveryClient.readManifest()));
+    const activeTargets = manifest.targets.filter(target => target.status === "active" && manifest.protocols.some(protocol => protocol.id === target.protocolId && protocol.status === "active"));
+    if (activeTargets.length === 0) throw new Error("active_targets_unavailable");
+    const targetIds = activeTargets.map(target => target.id); const config = validateAgainstManifest(normalizeConfig(await configClient.readActive(targetIds)), manifest); const receipts = normalizeReceipts(await receiptsClient.readLatest(targetIds, config.policyRevision)); const positions = []; const protocolStatuses = [];
+    for (const protocol of config.protocols.filter(item => item.status === "active")) { const targets = activeTargets.filter(target => target.protocolId === protocol.id); const adapter = adapters[`${protocol.discoveryAdapterId}@${protocol.discoveryAdapterVersion}`]; const enriched = { ...protocol, targets, targetIds: targets.map(target => target.id) }; if (!adapter) { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unsupported" }); continue; } try { const discovered = await adapter.discover(wallet, enriched); const position = normalizePosition(discovered); if (position) positions.push(position); protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: position ? "available" : "degraded" }); } catch { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unavailable" }); } }
+    const safeguards = config.bindings.map(binding => { const receipt = receipts.find(item => item.bindingId === binding.bindingId && item.targetId === binding.targetId && item.ruleId === binding.ruleId && item.ruleVersion === binding.ruleVersion && item.policyRevision === config.policyRevision); return { ...binding, ...(receipt ? { result: receipt.result, receiptId: receipt.receiptId } : { result: "unknown", reason: "missing_receipt", receiptId: null }) }; }); const satisfied = safeguards.filter(item => item.result !== "unknown").length; return { policyRevision: config.policyRevision, positions, safeguards, protocolStatuses, coverage: { state: satisfied === safeguards.length ? "complete" : "partial", expected: safeguards.length, satisfied } };
   } };
 }
