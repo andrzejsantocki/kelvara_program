@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { createPortfolioOrchestrator, createControlPlaneClient, createObservationHubClient } from "../subapps/kamino-monitor/portfolio-orchestrator.js";
 
 const WALLET = "883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
-const manifest = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1 }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active" }] };
+const manifest = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1 }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active", address: "vault-1" }] };
 // Copied Control Plane producer response: ruleVersions intentionally omit parameters.
-const config = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1, targetIds: ["target-1"] }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active" }], bindings: [{ bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Kamino" } }], ruleVersions: [{ ruleId: "rule-1", version: 3, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "a".repeat(64) }] };
+const config = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1, targetIds: ["target-1"] }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active", address: "vault-1" }], bindings: [{ bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Kamino" } }], ruleVersions: [{ ruleId: "rule-1", version: 3, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "a".repeat(64) }] };
 const position = { protocol: "Kamino Earn", asset: "USDG", totalShares: "10" };
 const receipts = [{ receiptId: "r-1", idempotencyKey: "k-1", policyRevision: 7, ruleId: "rule-1", ruleVersion: 3, bindingId: "binding-1", targetId: "target-1", evidenceRefs: ["obs-1"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } }];
 
@@ -87,13 +87,14 @@ test("missing exact receipt remains explicit unknown binding", async () => {
 });
 
 test("rejects empty, unknown-field, and malformed Observation Hub receipts", async () => {
+  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
   for (const response of [
     { policyRevision: 7, receipts: [] },
     { policyRevision: 7, receipts: [{ ...receipts[0], secret: "nope" }] },
     { policyRevision: 7, receipts: [{ ...receipts[0], targetId: "bad/id" }] },
     { policyRevision: 7, receipts: [{ ...receipts[0], evidenceRefs: [] }] },
   ]) {
-    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => response }, adapters: {} });
+    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => response }, adapters: discovering });
     if (response.receipts.length === 0) { const result = await orchestrator.getPortfolio(WALLET); assert.equal(result.coverage.state, "partial"); }
     else await assert.rejects(orchestrator.getPortfolio(WALLET), /observation_hub_malformed/);
   }
@@ -107,18 +108,20 @@ test("rejects non-positive revisions and versions in serialized config", async (
 });
 
 test("rejects non-canonical timestamps and open or unbounded provenance", async () => {
+  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
   for (const badReceipt of [
     { ...receipts[0], evaluatedAt: "2026-02-30T10:00:00.000Z" },
     { ...receipts[0], observedAt: "2026-10-01T09:59:00+00:00" },
     { ...receipts[0], provenance: { ...receipts[0].provenance, extra: "nope" } },
     { ...receipts[0], provenance: { ...receipts[0].provenance, sourceId: "x".repeat(129) } },
   ]) {
-    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [badReceipt] }) }, adapters: {} });
+    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [badReceipt] }) }, adapters: discovering });
     await assert.rejects(orchestrator.getPortfolio(WALLET), /observation_hub_malformed/);
   }
 });
 
 test("rejects receipt identity mismatches and duplicate exact identities", async () => {
+  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
   const cases = [
     [{ ...receipts[0], bindingId: "unknown-binding" }],
     [{ ...receipts[0], targetId: "target-other" }],
@@ -127,7 +130,7 @@ test("rejects receipt identity mismatches and duplicate exact identities", async
     [receipts[0], { ...receipts[0], receiptId: "r-2", idempotencyKey: "k-2" }],
   ];
   for (const badReceipts of cases) {
-    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: badReceipts }) }, adapters: {} });
+    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: badReceipts }) }, adapters: discovering });
     await assert.rejects(orchestrator.getPortfolio(WALLET), /observation_hub_malformed/);
   }
 });

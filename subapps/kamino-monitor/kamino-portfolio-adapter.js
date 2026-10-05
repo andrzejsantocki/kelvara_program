@@ -1,5 +1,10 @@
+const MAX_TARGET_STRING = 256;
+const MAX_DECIMAL_STRING = 128;
+function validText(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_TARGET_STRING && !/[\u0000-\u001f\u007f]/.test(value);
+}
 function validDecimal(value, positive = false) {
-  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) return false;
+  if (typeof value !== "string" || value.length > MAX_DECIMAL_STRING || !/^\d+(?:\.\d+)?$/.test(value)) return false;
   if (positive && /^0(?:\.0*)?$/.test(value)) return false;
   return true;
 }
@@ -11,7 +16,7 @@ function normalizeDiscovered(result, protocol) {
   const byAddress = new Map();
   const byId = new Map();
   for (const target of targets) {
-    if (!target || typeof target !== "object" || typeof target.id !== "string" || typeof target.address !== "string" || !target.address || typeof target.name !== "string" || !target.name) throw new Error("kamino_targets_malformed");
+    if (!target || typeof target !== "object" || !validText(target.id) || !validText(target.address) || target.address !== target.address.trim() || !validText(target.name) || target.name !== target.name.trim()) throw new Error("kamino_targets_malformed");
     if (byAddress.has(target.address) || byId.has(target.id)) throw new Error("kamino_targets_malformed");
     byAddress.set(target.address, target); byId.set(target.id, target);
   }
@@ -23,14 +28,14 @@ function normalizeDiscovered(result, protocol) {
     const target = byAddress.get(item.vault); seen.add(item.vault);
     const details = { vault: item.vault, totalShares: item.totalShares, ...(item.stakedShares !== undefined ? { stakedShares: item.stakedShares } : {}), ...(item.unstakedShares !== undefined ? { unstakedShares: item.unstakedShares } : {}), tokensPerShare: item.tokensPerShare, underlyingAmount: item.underlyingAmount, apy7d: item.apy7d ?? null };
     for (const key of ["stakedShares", "unstakedShares"]) if (details[key] !== undefined && !validDecimal(details[key])) throw new Error("kamino_discovery_malformed");
-    for (const key of ["asset", "sharesMint", "underlyingMint"]) if (item[key] !== undefined) details[key] = item[key];
+    for (const key of ["asset", "sharesMint", "underlyingMint"]) if (item[key] !== undefined) { if (!validText(item[key])) throw new Error("kamino_discovery_malformed"); details[key] = item[key]; }
     return { targetId: target.id, protocol: "kamino", adapterId: protocol.discoveryAdapterId || "kamino", adapterVersion: protocol.discoveryAdapterVersion ?? 1, display: target.name, details };
   });
   return { ...result, positions };
 }
 
 export function createKaminoPortfolioAdapter({ inspector }) {
-  if (!inspector || typeof inspector.inspect !== "function") throw new TypeError("kamino_inspector_required");
+  if (!inspector || (typeof inspector.inspect !== "function" && typeof inspector.discoverPositions !== "function")) throw new TypeError("kamino_inspector_required");
   return { async discover(wallet, protocol = {}) {
     if (typeof inspector.discoverPositions === "function" && Array.isArray(protocol.targets)) return normalizeDiscovered(await inspector.discoverPositions(wallet, protocol.targets), protocol);
     const result = await inspector.inspect(wallet);

@@ -22,3 +22,25 @@ test("Kamino adapter maps every discovered canonical vault position", async () =
     { targetId: "target-steakhouse", display: "Steakhouse USDG", details: { vault: targets[1].address, totalShares: "2", tokensPerShare: "2", underlyingAmount: "4", apy7d: "0.1" } },
   ]);
 });
+
+
+test("Kamino adapter accepts discoverPositions-only inspectors", async () => {
+  const adapter = createKaminoPortfolioAdapter({ inspector: { discoverPositions: async () => ({ positions: [] }) } });
+  const result = await adapter.discover("883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62", { targets: [], targetIds: [] });
+  assert.deepEqual(result.positions, []);
+});
+
+test("Kamino adapter rejects malformed matched rows and optional metadata", async () => {
+  const target = { id: "target-1", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", name: "Yield" };
+  const adapter = createKaminoPortfolioAdapter({ inspector: { discoverPositions: async () => ({ positions: [{ vault: target.address, totalShares: "1", tokensPerShare: "2", underlyingAmount: "2", asset: "bad\nasset" }] }) } });
+  await assert.rejects(() => adapter.discover("883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62", { targets: [target], targetIds: [target.id] }), /kamino_discovery_malformed/);
+});
+
+test("Kamino adapter rejects duplicate target IDs", async () => {
+  const targets = [
+    { id: "same", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", name: "A" },
+    { id: "same", address: "BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", name: "B" },
+  ];
+  const adapter = createKaminoPortfolioAdapter({ inspector: { discoverPositions: async () => ({ positions: [] }) } });
+  await assert.rejects(() => adapter.discover("883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62", { targets, targetIds: targets.map(t => t.id) }), /kamino_targets_malformed/);
+});
