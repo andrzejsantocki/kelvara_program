@@ -33,6 +33,7 @@ export function resolveKaminoRuntimeConfig(env = process.env, moduleDir = ".") {
   const configToken = internalToken(env.KELVARA_CONTROL_PLANE_TOKEN, "KELVARA_CONTROL_PLANE_TOKEN");
   const receiptsToken = internalToken(env.KELVARA_OBSERVATION_HUB_TOKEN, "KELVARA_OBSERVATION_HUB_TOKEN");
   if (Boolean(configUrl) !== Boolean(configToken) || Boolean(receiptsUrl) !== Boolean(receiptsToken)) throw new TypeError("portfolio internal dependency configuration incomplete");
+  if (configToken && receiptsToken && configToken === receiptsToken) throw new TypeError("portfolio internal dependency tokens must be distinct");
   if ((env.NODE_ENV === "production" || env.HAOS === "1") && (!configUrl || !receiptsUrl || env.HOST !== "127.0.0.1")) {
     if (!configUrl || !receiptsUrl) throw new TypeError("portfolio internal dependencies required");
   }
