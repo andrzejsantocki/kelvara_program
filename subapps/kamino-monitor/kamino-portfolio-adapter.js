@@ -5,6 +5,6 @@ export function createKaminoPortfolioAdapter({ inspector }) {
     if (!result?.position) return result;
     const legacy = result.position;
     const { name, protocol: _protocol, ...details } = legacy;
-    return { ...result, position: { targetId: protocol.targetIds?.[0] || legacy.targetId || null, protocol: "kamino", adapterId: protocol.discoveryAdapterId || "kamino", adapterVersion: protocol.discoveryAdapterVersion || "1.0.0", display: name || "Kamino position", details } };
+    return { ...result, position: { targetId: protocol.targetIds?.[0] || legacy.targetId || null, protocol: "kamino", adapterId: protocol.discoveryAdapterId || "kamino", adapterVersion: protocol.discoveryAdapterVersion ?? 1, display: name || "Kamino position", details } };
   } };
 }
