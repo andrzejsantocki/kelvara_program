@@ -3,10 +3,10 @@ import { validateSolanaAddress } from "../../src/domains/discovery/wallet.js";
 const MAX_URL_LENGTH = 2048;
 const MANIFEST_FIELDS = new Set(["policyRevision", "protocols", "targets"]);
 const MANIFEST_PROTOCOL_FIELDS = new Set(["id", "name", "chain", "status", "discoveryAdapterId", "discoveryAdapterVersion"]);
-const MANIFEST_TARGET_FIELDS = new Set(["id", "protocolId", "kind", "name", "status"]);
+const MANIFEST_TARGET_FIELDS = new Set(["id", "protocolId", "kind", "name", "status", "address"]);
 const CONFIG_FIELDS = new Set(["policyRevision", "protocols", "targets", "bindings", "ruleVersions"]);
 const CONFIG_PROTOCOL_FIELDS = new Set(["id", "name", "chain", "status", "discoveryAdapterId", "discoveryAdapterVersion", "targetIds"]);
-const CONFIG_TARGET_FIELDS = new Set(["id", "protocolId", "kind", "name", "status"]);
+const CONFIG_TARGET_FIELDS = new Set(["id", "protocolId", "kind", "name", "status", "address"]);
 const BINDING_FIELDS = new Set(["bindingId", "targetId", "ruleId", "ruleVersion", "display"]);
 const RULE_VERSION_FIELDS = new Set(["ruleId", "version", "evaluatorType", "evaluatorVersion", "evidenceSchema", "contentHash"]);
 const RECEIPT_FIELDS = new Set(["receiptId", "idempotencyKey", "policyRevision", "ruleId", "ruleVersion", "bindingId", "targetId", "evidenceRefs", "evaluatorVersion", "result", "evaluatedAt", "observedAt", "provenance"]);
@@ -70,7 +70,17 @@ function normalizeReceipts(body, config) {
   });
   return body;
 }
-function normalizePosition(discovered) { return discovered?.position || null; }
+function normalizePositions(discovered, protocol) {
+  const legacy = !Array.isArray(discovered?.positions) && discovered?.position && typeof discovered.position === "object" && !discovered.position.targetId;
+  const raw = Array.isArray(discovered?.positions) ? discovered.positions : discovered?.position ? [discovered.position] : [];
+  if (!Array.isArray(raw)) throw new Error("adapter_malformed");
+  const allowed = new Set(protocol.targetIds); const seen = new Set();
+  return raw.map(position => {
+    if (legacy) { const targetId = protocol.targetIds?.[0]; if (!targetId) throw new Error("adapter_malformed"); return { targetId, protocol: "kamino", adapterId: protocol.discoveryAdapterId, adapterVersion: protocol.discoveryAdapterVersion, display: position.name || "Kamino position", details: Object.fromEntries(Object.entries(position).filter(([key]) => key !== "name" && key !== "protocol")) }; }
+    if (!position || typeof position !== "object" || !validId(position.targetId) || !allowed.has(position.targetId) || seen.has(position.targetId) || position.protocol !== "kamino" || !validId(position.adapterId) || !validVersion(position.adapterVersion) || typeof position.display !== "string" || !position.display || !position.details || typeof position.details !== "object" || Array.isArray(position.details)) throw new Error("adapter_malformed");
+    seen.add(position.targetId); return position;
+  });
+}
 
 export function createControlPlaneClient({ url, token, fetchImpl = fetch }) { const base = requireUrl(url, "control_plane_url"); requireToken(token); return { async readManifest() { const endpoint = new URL("/internal/v1/config/discovery-manifest", base).toString(); const response = await fetchImpl(endpoint, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2000) }); if (!response.ok) throw new Error("control_plane_unavailable"); try { return await response.json(); } catch { throw new Error("control_plane_malformed"); } }, async readActive(targetIds) { return postJson(new URL("/internal/v1/config/batch-read", base).toString(), token, { targetIds }, fetchImpl, "control_plane"); } }; }
 export function createObservationHubClient({ url, token, fetchImpl = fetch }) { const endpoint = new URL("/internal/evaluation-receipts/batch-read", requireUrl(url, "observation_hub_url")).toString(); requireToken(token); return { async readLatest(targetIds, policyRevision) { return postJson(endpoint, token, { policyRevision, targetIds }, fetchImpl, "observation_hub"); } }; }
@@ -83,7 +93,7 @@ export function createPortfolioOrchestrator({ configUrl, receiptsUrl, token, con
     const activeTargets = manifest.targets.filter(target => target.status === "active" && manifest.protocols.some(protocol => protocol.id === target.protocolId && protocol.status === "active"));
     if (activeTargets.length === 0) throw new Error("active_targets_unavailable");
     const targetIds = activeTargets.map(target => target.id); const config = validateAgainstManifest(normalizeConfig(await configClient.readActive(targetIds)), manifest); const receiptPayload = normalizeReceipts(await receiptsClient.readLatest(targetIds, config.policyRevision), config); if (receiptPayload.policyRevision !== config.policyRevision) throw new Error("observation_hub_malformed"); const receipts = receiptPayload.receipts; const positions = []; const protocolStatuses = [];
-    for (const protocol of config.protocols.filter(item => item.status === "active")) { const targets = activeTargets.filter(target => target.protocolId === protocol.id); const adapter = adapters[`${protocol.discoveryAdapterId}@${protocol.discoveryAdapterVersion}`]; const enriched = { ...protocol, targets, targetIds: targets.map(target => target.id) }; if (!adapter) { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unsupported" }); continue; } try { const discovered = await adapter.discover(wallet, enriched); const position = normalizePosition(discovered); if (position) positions.push(position); protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: position ? "available" : "degraded" }); } catch { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unavailable" }); } }
-    const safeguards = config.bindings.map(binding => { const receipt = receipts.find(item => item.bindingId === binding.bindingId && item.targetId === binding.targetId && item.ruleId === binding.ruleId && item.ruleVersion === binding.ruleVersion && item.policyRevision === config.policyRevision); return { ...binding, ...(receipt ? { result: receipt.result, receiptId: receipt.receiptId } : { result: "unknown", reason: "missing_receipt", receiptId: null }) }; }); const satisfied = safeguards.filter(item => item.result !== "unknown").length; return { policyRevision: config.policyRevision, positions, safeguards, protocolStatuses, coverage: { state: satisfied === safeguards.length ? "complete" : "partial", expected: safeguards.length, satisfied } };
+    for (const protocol of config.protocols.filter(item => item.status === "active")) { const targets = activeTargets.filter(target => target.protocolId === protocol.id); const adapter = adapters[`${protocol.discoveryAdapterId}@${protocol.discoveryAdapterVersion}`]; const enriched = { ...protocol, targets, targetIds: targets.map(target => target.id) }; if (!adapter) { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unsupported" }); continue; } try { const discovered = await adapter.discover(wallet, enriched); const discoveredPositions = normalizePositions(discovered, enriched); positions.push(...discoveredPositions); protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: discoveredPositions.length ? "available" : "degraded" }); } catch { protocolStatuses.push({ protocol: protocol.discoveryAdapterId, status: "unavailable" }); } }
+    const discoveredTargetIds = new Set(positions.map(position => position.targetId)); const safeguards = config.bindings.filter(binding => discoveredTargetIds.has(binding.targetId)).map(binding => { const receipt = receipts.find(item => item.bindingId === binding.bindingId && item.targetId === binding.targetId && item.ruleId === binding.ruleId && item.ruleVersion === binding.ruleVersion && item.policyRevision === config.policyRevision); return { ...binding, ...(receipt ? { result: receipt.result, receiptId: receipt.receiptId } : { result: "unknown", reason: "missing_receipt", receiptId: null }) }; }); const satisfied = safeguards.filter(item => item.result !== "unknown").length; return { policyRevision: config.policyRevision, positions, safeguards, protocolStatuses, coverage: { state: positions.length === 0 || satisfied !== safeguards.length ? "partial" : "complete", expected: safeguards.length, satisfied } };
   } };
 }

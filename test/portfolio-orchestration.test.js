@@ -61,8 +61,27 @@ test("rejects policy, relationship, and unadvertised batch mismatches", async ()
   }
 });
 
+test("orchestrates multiple positions and restricts safeguards to discovered targets", async () => {
+  const multiManifest = { ...manifest, targets: [
+    { id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Commodity", address: "vault-1", status: "active" },
+    { id: "target-2", protocolId: "protocol-kamino", kind: "position", name: "Steakhouse", address: "vault-2", status: "active" },
+    { id: "target-3", protocolId: "protocol-kamino", kind: "position", name: "Unrelated", address: "vault-3", status: "active" },
+  ] };
+  const multiConfig = { ...config, protocols: [{ ...config.protocols[0], targetIds: ["target-1", "target-2", "target-3"] }], targets: multiManifest.targets, bindings: [
+    { bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Commodity" } },
+    { bindingId: "binding-2", targetId: "target-2", ruleId: "rule-1", ruleVersion: 3, display: { name: "Steakhouse" } },
+    { bindingId: "binding-3", targetId: "target-3", ruleId: "rule-1", ruleVersion: 3, display: { name: "Unrelated" } },
+  ] };
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => multiManifest }, controlPlaneClient: { readActive: async () => multiConfig }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.slice(0, 2).map(target => ({ targetId: target.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: target.name, details: { vault: target.address, totalShares: "1" } })) }) } } });
+  const result = await orchestrator.getPortfolio(WALLET);
+  assert.deepEqual(result.positions.map(item => item.targetId), ["target-1", "target-2"]);
+  assert.deepEqual(result.safeguards.map(item => item.targetId), ["target-1", "target-2"]);
+  assert.equal(result.safeguards[0].result, "unknown");
+  assert.equal(result.coverage.expected, 2);
+});
+
 test("missing exact receipt remains explicit unknown binding", async () => {
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "target-1", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: {} });
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "target-1", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
   const result = await orchestrator.getPortfolio(WALLET);
   assert.equal(result.safeguards[1].result, "unknown"); assert.equal(result.coverage.state, "partial");
 });
