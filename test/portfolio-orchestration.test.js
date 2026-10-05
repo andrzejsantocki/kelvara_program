@@ -4,7 +4,8 @@ import { createPortfolioOrchestrator, createControlPlaneClient, createObservatio
 
 const WALLET = "883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
 const manifest = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1 }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active" }] };
-const config = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1, targetIds: ["target-1"] }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active" }], bindings: [{ bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Kamino" } }], ruleVersions: [{ ruleId: "rule-1", version: 3, evaluatorType: "freshness", evaluatorVersion: "1", parameters: { maximumAgeMs: 60000 }, evidenceSchema: "fresh-v1", contentHash: "a".repeat(64) }] };
+// Copied Control Plane producer response: ruleVersions intentionally omit parameters.
+const config = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1, targetIds: ["target-1"] }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active" }], bindings: [{ bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Kamino" } }], ruleVersions: [{ ruleId: "rule-1", version: 3, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "a".repeat(64) }] };
 const position = { protocol: "Kamino Earn", asset: "USDG", totalShares: "10" };
 const receipts = [{ receiptId: "r-1", idempotencyKey: "k-1", policyRevision: 7, ruleId: "rule-1", ruleVersion: 3, bindingId: "binding-1", targetId: "target-1", evidenceRefs: ["obs-1"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } }];
 
@@ -61,7 +62,7 @@ test("rejects policy, relationship, and unadvertised batch mismatches", async ()
 });
 
 test("missing exact receipt remains explicit unknown binding", async () => {
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "target-1", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", parameters: { maximumAgeMs: 60000 }, evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: {} });
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "target-1", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: {} });
   const result = await orchestrator.getPortfolio(WALLET);
   assert.equal(result.safeguards[1].result, "unknown"); assert.equal(result.coverage.state, "partial");
 });
@@ -83,5 +84,31 @@ test("rejects non-positive revisions and versions in serialized config", async (
   for (const bad of [{ ...config, policyRevision: 0 }, { ...config, protocols: [{ ...config.protocols[0], discoveryAdapterVersion: 0 }] }, { ...config, ruleVersions: [{ ...config.ruleVersions[0], version: 0 }] }]) {
     const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => bad }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: {} });
     await assert.rejects(orchestrator.getPortfolio(WALLET), /control_plane_malformed/);
+  }
+});
+
+test("rejects non-canonical timestamps and open or unbounded provenance", async () => {
+  for (const badReceipt of [
+    { ...receipts[0], evaluatedAt: "2026-02-30T10:00:00.000Z" },
+    { ...receipts[0], observedAt: "2026-10-01T09:59:00+00:00" },
+    { ...receipts[0], provenance: { ...receipts[0].provenance, extra: "nope" } },
+    { ...receipts[0], provenance: { ...receipts[0].provenance, sourceId: "x".repeat(129) } },
+  ]) {
+    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [badReceipt] }) }, adapters: {} });
+    await assert.rejects(orchestrator.getPortfolio(WALLET), /observation_hub_malformed/);
+  }
+});
+
+test("rejects receipt identity mismatches and duplicate exact identities", async () => {
+  const cases = [
+    [{ ...receipts[0], bindingId: "unknown-binding" }],
+    [{ ...receipts[0], targetId: "target-other" }],
+    [{ ...receipts[0], ruleId: "rule-other" }],
+    [{ ...receipts[0], policyRevision: 8 }],
+    [receipts[0], { ...receipts[0], receiptId: "r-2", idempotencyKey: "k-2" }],
+  ];
+  for (const badReceipts of cases) {
+    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: badReceipts }) }, adapters: {} });
+    await assert.rejects(orchestrator.getPortfolio(WALLET), /observation_hub_malformed/);
   }
 });
