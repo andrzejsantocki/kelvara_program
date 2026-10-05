@@ -80,7 +80,7 @@ test("protection UI exposes nonce setup, armed count, fast close, and revoke",as
  const root=new URL("../",import.meta.url),html=await readFile(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),app=await readFile(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  for(const text of ["Arm protection","armed transactions","Fast close","Revoke protection","durable nonce"])assert.match(html,new RegExp(text,"i"));
  for(const contract of ["signAllTransactions","/api/protection/prepare","/api/protection/arm","/api/protection/fast-close","/api/protection/revoke","kelvara_pending_nonce_accounts"])assert.match(app,new RegExp(contract.replaceAll("/","\\/")));
- assert.ok(app.includes("activateMonitoring({loadProtection:false})"));
+ assert.ok(app.includes("activateMonitoring()"));
  for(const binding of ['$("#arm-protection").onclick=armProtection','$("#fast-close").onclick=fastClose','$("#revoke-protection").onclick=revokeProtection'])assert.match(app,new RegExp(binding.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
 });
 
@@ -93,13 +93,24 @@ test("revocation is not described as complete before on-chain confirmation",asyn
 });
 
 test("arming API requires wallet authentication and stores three signed variants",async()=>{
- const dir=await mkdtemp(join(tmpdir(),"kelvara-api-")),store=createProtectionStore({path:join(dir,"armed.enc"),key:Buffer.alloc(32,9)}),auth=createWalletAuth(),keypair=Keypair.generate();
- const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},protectionStore:store,walletAuth:auth,validateArmedBundle:async bundle=>bundle});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ const dir=await mkdtemp(join(tmpdir(),"kelvara-api-")),store=createProtectionStore({path:join(dir,"armed.enc"),key:Buffer.alloc(32,9)}),auth=createWalletAuth(),keypair=Keypair.generate(),observations=[];
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},protectionStore:store,walletAuth:auth,validateArmedBundle:async bundle=>bundle,operationsSink:{record:async value=>observations.push(value)}});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
  try{const challenge=await(await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString()})})).json();const signature=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64");const session=await(await fetch(`${base}/api/auth/verify`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString(),message:challenge.message,signature})})).json();
   const unauthorized=await fetch(`${base}/api/protection/status`);assert.equal(unauthorized.status,401);
   const variants=[10,50,100].map((fee,index)=>({signature:`sig${index}`,signedTransaction:`tx${index}`,priorityMicroLamports:fee}));const armed=await(await fetch(`${base}/api/protection/arm`,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${session.token}`},body:JSON.stringify({nonceAccount:WALLET,nonceValue:"nonce",shares:"0.1",variants})})).json();assert.equal(armed.armedCount,3);
   const status=await(await fetch(`${base}/api/protection/status`,{headers:{authorization:`Bearer ${session.token}`}})).json();assert.equal(status.armedCount,3);assert.equal(status.variants[0].signedTransaction,undefined);assert.equal(status.monitoring.active,true);assert.equal(status.monitoring.consentSource,"durable_nonce_bundle_signature");assert.equal(status.monitoring.network,"mainnet");
   const stored=await store.get(keypair.publicKey.toString());assert.equal(stored.monitoring.active,true);assert.equal(stored.monitoring.protocol,"Kamino Earn");assert.equal(stored.monitoring.vault,KAMINO.vault);
+  assert.equal(observations.length,1);assert.equal(observations[0].event,"protection_armed");assert.equal(observations[0].walletId,keypair.publicKey.toString());
+ }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
+});
+
+test("protection status remains available when chain nonce recovery is unavailable",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"kelvara-recovery-failure-")),store=createProtectionStore({path:join(dir,"armed.enc"),key:Buffer.alloc(32,6)}),auth=createWalletAuth(),keypair=Keypair.generate();
+ const recoverPendingNonceSetup=async()=>{throw new Error("rpc_http_429")};
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},protectionStore:store,walletAuth:auth,recoverPendingNonceSetup});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try{const challenge=await(await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString()})})).json(),signature=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64"),session=await(await fetch(`${base}/api/auth/verify`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:keypair.publicKey.toString(),message:challenge.message,signature})})).json();
+  const response=await fetch(`${base}/api/protection/status`,{headers:{authorization:`Bearer ${session.token}`}}),status=await response.json();
+  assert.equal(response.status,200);assert.equal(status.armed,false);assert.deepEqual(status.pendingNonceAccounts,[]);assert.equal(status.recoveryUnavailable,true);
  }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
 });
 
@@ -114,19 +125,64 @@ test("protection status recovers confirmed nonce setup for reconnecting wallet",
  }finally{server.close();await once(server,"close");await rm(dir,{recursive:true,force:true})}
 });
 
+test("arming click opens review before any wallet or network wait",async()=>{
+ const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8"),body=app.match(/function openArmingReview\(\)\{.*?\n(?=function closeArmingReview)/s)?.[0]||"";
+ assert.match(body,/arming-review-message/);
+ assert.match(body,/classList\.remove\("hidden"\)/);
+ assert.doesNotMatch(body,/fetch\(|authenticateProtection|protectionRequest|signMessage|signTransaction/);
+});
+
 test("frontend reuses backend-recovered nonce accounts before generating keys",async()=>{
  const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
  assert.match(app,/protectionStatus\?\.pendingNonceAccounts/);
  assert.match(app,/pendingNonceAccounts\?\.length===3/);
- assert.match(app,/Nonce setup recovered/);
- assert.match(app,/await inspect\(\);await loadProtection\(\)/);
+ assert.match(app,/Recovered three confirmed nonce accounts/);
+ assert.match(app,/async function runProtectionSetup/);
 });
 
-test("explicit wallet connection authenticates before opening position views",async()=>{
+test("wallet connection stays read-only until the user continues from the arming review",async()=>{
  const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
  const connectBody=app.match(/async function connectWallet\(kind\)\{.*?\n(?=async function viewAddress)/s)?.[0]||"";
- const authenticateAt=connectBody.indexOf("await authenticateProtection()"),inspectAt=connectBody.indexOf("await inspect()"),loadAt=connectBody.indexOf("await loadProtection()");
- assert.ok(authenticateAt>=0&&authenticateAt<inspectAt&&inspectAt<loadAt);
+ assert.match(connectBody,/await inspect\(\)/);
+ assert.doesNotMatch(connectBody,/authenticateProtection|loadProtection|signMessage/);
+ const continueBody=app.match(/async function continueArming\(\)\{.*?\n(?=async function runProtectionSetup)/s)?.[0]||"";
+ assert.match(continueBody,/await authenticateProtection\(\)/);
+ assert.match(continueBody,/await runProtectionSetup\(\)/);
+});
+
+test("arming review fits mobile viewport and keeps actions reachable",async()=>{
+ const css=await readFile(new URL("../subapps/kamino-monitor/web/styles.css",import.meta.url),"utf8");
+ assert.match(css,/\.arming-review-card\{[^}]*max-height:calc\(100(?:dvh|svh) - 24px\)[^}]*overflow:hidden/);
+ assert.match(css,/@media\(max-width:620px\)[\s\S]*?\.arming-review-card\{[^}]*width:100%[^}]*padding:20px 16px/);
+ assert.match(css,/@media\(max-width:760px\)[\s\S]*?\.portfolio-shell\{grid-template-columns:1fr/);
+ assert.match(css,/@media\(max-width:760px\)[\s\S]*?\.mini-chain\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+ assert.match(css,/@media\(max-width:760px\)[\s\S]*?\.mini-chain>i\{display:none/);
+ assert.match(css,/\.arming-review-card\{[^}]*overflow:hidden[^}]*display:flex[^}]*flex-direction:column/);
+ assert.match(css,/\.arming-review-body\{[^}]*overflow-y:auto[^}]*min-height:0/);
+ assert.match(css,/\.arming-review-actions\{[^}]*flex:none/);
+ assert.match(css,/\.arming-review-card \.selector-head>button\{[^}]*min-width:44px[^}]*min-height:44px/);
+ assert.doesNotMatch(css,/\.arming-review-card\{[^}]*min-width:/);
+});
+
+test("position exposes direct arming and a consolidated material-action review",async()=>{
+ const root=new URL("../",import.meta.url),html=await readFile(new URL("subapps/kamino-monitor/web/index.html",root),"utf8"),app=await readFile(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
+ assert.match(html,/id="position-arm-protection"[^>]*>Arm protection</);
+ assert.match(html,/id="arming-review"/);
+ for(const disclosure of ["three user-controlled durable nonce accounts","reclaimable rent","setup network fee","exact detected share amount","destination token account","three pre-signed transactions","Low, medium, and high fee tiers","stored encrypted","No withdrawal happens during setup","Fast close","Revoke protection"])assert.match(html,new RegExp(disclosure,"i"));
+ assert.match(html,/id="continue-arming"[^>]*>Continue to wallet</);
+ assert.match(app,/function openArmingReview/);
+ assert.match(app,/\$\("#position-arm-protection"\)\.onclick=openArmingReview/);
+ assert.match(app,/\$\("#continue-arming"\)\.onclick=continueArming/);
+});
+
+test("arming review is populated with exact position and destination data before signing",async()=>{
+ const app=await readFile(new URL("../subapps/kamino-monitor/web/app.js",import.meta.url),"utf8");
+ const reviewBody=app.match(/function openArmingReview\(\)\{.*?\n(?=function closeArmingReview)/s)?.[0]||"";
+ assert.match(reviewBody,/evidence\.position\.totalShares/);
+ assert.match(reviewBody,/evidence\.position\.underlyingAmount/);
+ assert.match(reviewBody,/walletAddress/);
+ assert.match(reviewBody,/arming-destination-token-account/);
+ assert.doesNotMatch(reviewBody,/authenticateProtection|signMessage|signTransaction|signAllTransactions/);
 });
 
 test("confirmed manual evacuation finalizes the persisted armed record",async()=>{

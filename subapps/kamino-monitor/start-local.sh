@@ -24,7 +24,7 @@ done
 i=0
 while [ "$i" -lt 30 ] && fuser "$PORT/tcp" >/dev/null 2>&1; do i=$((i+1)); sleep 0.1; done
 : > "$LOG"
-PORT="$PORT" node "$ROOT_DIR/subapps/kamino-monitor/server.js" >>"$LOG" 2>&1 &
+KELVARA_OPERATIONS_URL="${KELVARA_OPERATIONS_URL:-http://127.0.0.1:7610}" PORT="$PORT" node "$ROOT_DIR/subapps/kamino-monitor/server.js" >>"$LOG" 2>&1 &
 pid=$!
 printf '%s\n' "$pid" > "$PIDFILE"
 i=0

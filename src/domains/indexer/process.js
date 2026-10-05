@@ -23,8 +23,12 @@ export function runIndexerStep(step, {
   indexerDir,
   timeoutMs = 120_000,
   processLimit = 25,
+  signal,
+  terminationGraceMs = 5_000,
   spawnImpl = spawn,
   killImpl = process.kill,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
 } = {}) {
   const executable = join(indexerDir, "node_modules", ".bin", "tsx");
   const args = commandForStep(step, { processLimit });
@@ -38,23 +42,41 @@ export function runIndexerStep(step, {
     let output = "";
     let timedOut = false;
     let settled = false;
+    let graceTimer;
     child.stdout.on("data", chunk => { output += chunk; });
     child.stderr.on("data", chunk => { output += chunk; });
     const finish = result => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimeoutImpl(timeoutTimer);
+      if (graceTimer !== undefined) clearTimeoutImpl(graceTimer);
+      signal?.removeEventListener("abort", abort);
       resolve(result);
     };
-    const timer = setTimeout(() => {
+    const killGroup = killSignal => {
+      try { killImpl(-child.pid, killSignal); }
+      catch (error) { output += `\ntermination failed: ${error.message}`; }
+    };
+    const terminate = reason => {
+      if (settled || graceTimer !== undefined) return;
+      output += `\n${reason}`;
+      killGroup("SIGTERM");
+      graceTimer = setTimeoutImpl(() => {
+        output += `\ntermination grace expired after ${terminationGraceMs}ms`;
+        killGroup("SIGKILL");
+      }, terminationGraceMs);
+    };
+    const abort = () => terminate("aborted");
+    const timeoutTimer = setTimeoutImpl(() => {
       timedOut = true;
-      output += `\ntimed out after ${timeoutMs}ms`;
-      try { killImpl(-child.pid, "SIGTERM"); } catch (error) { output += `\ntermination failed: ${error.message}`; }
+      terminate(`timed out after ${timeoutMs}ms`);
     }, timeoutMs);
     child.on("error", error => finish({ code: -1, timedOut, output: compactOutput(output + error.message) }));
-    child.on("close", (code, signal) => {
-      const suffix = signal ? `\nterminated by ${signal}` : "";
+    child.on("close", (code, closeSignal) => {
+      const suffix = closeSignal ? `\nterminated by ${closeSignal}` : "";
       finish({ code: code ?? -1, timedOut, output: compactOutput(output + suffix) });
     });
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }

@@ -1,5 +1,41 @@
 # LLM-2 coordination
 
+## Live evidence + bounded retention — 2026-09-28
+
+Owned scope for this implementation:
+
+- `src/platform/storage/**`
+- `src/domains/operations/**`
+- new focused tests for those directories
+- additive operational endpoints in `src/platform/http/{app.js,server.js}` and their focused tests
+- additive ingestion-runner metrics/recovery changes under `src/domains/indexer/**` and focused tests
+- `docs/live-evidence-retention-plan.md` and related operator documentation
+
+Will not modify Wallet Inspector, Kamino Monitor, Devnet Demo, Rule Studio, Alert Console, shared evidence/event contracts, or producer indexer source. Producer `indexer.db` remains read-only. Work uses strict RED → GREEN → REFACTOR.
+
+Plan: durable deduplicated watch/evidence store; supervised cycle metrics and recovery; tiered telemetry rollups; disk governor; operational APIs; restart/provider-failure/backlog/compaction verification.
+
+Completed:
+- Consumer SQLite: WAL, busy timeout, schema version, deduplicated targets/links, immutable idempotent evidence, stable hashes, current state, value-change events, telemetry, incidents, cursors, checkpoint, restart recovery.
+- Runner: overlap safety retained; stage/result telemetry, bounded redacted diagnostics, interrupted-cycle recovery, failure incidents, source lag/backlog samples.
+- Retention: raw 72h → 1m 7d → 15m 90d → 1h 730d defaults; idempotent atomic tier promotion; canonical evidence/events untouched.
+- Disk governor: deterministic 70/80/85 thresholds, forced compaction/pruning hooks, optional-backfill pause, injected disk stats.
+- Operations service/API: `/api/operations/status`, `/api/operations/targets`, explicit unknown/null values, optional bearer auth, configurable `HOST`, consumer DB/status paths.
+- Scale coverage: 100 clients × 3 positions = 300 distinct positions; multi-target links measured separately; shared target count bounded.
+- Shared `package.json` edit: appended new owned source files to `npm run check`; no unrelated script changes.
+
+Verification, exact observed outputs:
+- `node --test test/consumer-store.test.js test/retention.test.js test/disk-governor.test.js test/indexer-runner.test.js test/operations-status.test.js test/http-app.test.js` → 17 tests, 17 pass, 0 fail.
+- `npm test` → 220 tests, 220 pass, 0 fail.
+- `npm run check` → exit 0.
+
+Known limits/blockers:
+- Current producer has one `HELIUS_RPC`; no fabricated dual-provider metric. Provider KPI remains unknown without real samples.
+- Read-only producer DB fails `quick_check` and `integrity_check`: pages 22145–22158 `never used`; 84,974 signatures, 4,090 pending, newest block time 2026-09-23, stale ~422k seconds, 267,120,640 bytes. Not modified; not healthy/live.
+- Stage callback telemetry is emitted but stage is not persisted in the v1 generic telemetry schema.
+- Non-loopback deployments must set `KELVARA_OPERATIONS_TOKEN`; enforcement remains an operator configuration requirement.
+- No commit or push.
+
 ## Mini-app switcher, attributed activity, fee treasury — 2026-09-27
 
 Owned files: `devnet-demo/web/{index.html,app.js,styles.css}`, `devnet-demo/{server.js,solana-chain.js,server.test.js}`.
@@ -422,3 +458,93 @@ Implemented:
 - Incident now shows event time, full transaction hash, and explicit `Team did not announce the authority change.` context.
 
 Verification: focused RED then GREEN; full Node suite `17/17`; `npm run check` passed.
+
+## Position-to-protection funnel optimization — 2026-09-28
+
+Ownership:
+
+- Executable source: `subapps/kamino-monitor/web/{index.html,app.js,styles.css}`.
+- Backend transaction/authentication contracts remain in `subapps/kamino-monitor/{server.js,protection.js}`.
+- Production static mirror: `/home/andy/COLLOSEUM KELVARA/kelvara-monitor-ui/{index.html,app.js,styles.css}`.
+- Funnel contract tests: `test/armed-protection.test.js` and `kelvara-monitor-ui/tests/protection-ux.test.js`.
+
+Implemented:
+
+- Wallet connection performs read-only public-address inspection. It no longer requests authentication or protection status.
+- Position view exposes `Arm protection` directly beside optional `Preview monitoring`.
+- First click opens one consolidated review. It performs no authentication, network request, or wallet signature.
+- Review discloses the three nonce accounts, reclaimable rent, setup fee, exact detected shares/value, wallet and token destination, three fee variants, encrypted storage, no-withdrawal setup semantics, explicit Fast close trigger, automatic monitoring, and revocation semantics.
+- `Continue to wallet` requests the off-chain authentication signature, then runs nonce setup and evacuation signing continuously.
+- Exact nonce rent is populated from the prepared Mainnet transaction before setup approval. The destination token account is populated from the validated evacuation draft before evacuation signatures.
+- Armed protection activates read-only monitoring automatically. Manual Preview/Enable/Activate monitoring remains optional and is no longer an arming prerequisite.
+
+Verification:
+
+- `kelvara_program`: full Node suite `264/264`; focused Kamino/protection suite `55/55`; syntax and `git diff --check` pass.
+- Rendered headless Chromium inspection exposed mobile-width, below-fold action, and position-grid overflow defects. RED regressions now enforce a viewport-bounded flex modal, independently scrollable disclosures, persistent action footer, responsive position grid, stacked rows, 44px close target, and no forced minimum width. Re-render at 390×844 confirmed both actions visible, 48px action height, modal width 375px, and no page/modal horizontal overflow.
+- `kelvara-monitor-ui`: landing and optimized-funnel contracts `11/11`; syntax and `git diff --check` pass.
+- No commit, push, or production deployment performed.
+
+## Local operations console — 2026-09-29
+
+Ownership/scope:
+
+- New independent read-only UI: `subapps/operations-console/{index.html,styles.css,app.js}`.
+- Same-origin static delivery through `src/platform/http/app.js` at `/operations/`.
+- Contract coverage in `test/operations-console.test.js` and `test/http-app.test.js`.
+- The console fetches only `/api/health`, `/api/sources/onre-indexer`, `/api/operations/status`, and `/api/operations/targets`; it never opens or mutates producer/consumer SQLite files.
+- Optional bearer token remains browser-memory-only and is never persisted.
+
+Status: completed and running locally.
+
+Verification:
+
+- Focused operations/API/UI suite: 18/18 passing.
+- Full repository suite: 268/268 passing.
+- `npm run check`: exit 0.
+- Live HTTP: `/operations/` returned 200 with `text/html`; all four wrapper APIs returned JSON.
+- Firefox rendered the console at `http://127.0.0.1:7610/operations/` with `Live` state and real producer/status values.
+- Producer remains read-only and explicitly stale with 4,090 pending records; provider telemetry remains unknown rather than fabricated.
+
+## Local app → operations bridge — 2026-09-29
+
+Ownership/scope:
+
+- Add a bounded, sanitized observation endpoint to `src/platform/http/{app.js,server.js}`.
+- Add operations observation validation/storage mapping under `src/domains/operations/**`.
+- Instrument Kamino local wallet inspection in `subapps/kamino-monitor/server.js`; no browser secrets, auth tokens, signed transactions, or raw wallet addresses enter operations storage.
+- Wire `subapps/kamino-monitor/start-local.sh` to the loopback operations API.
+- Add focused integration coverage, then exercise the real local HTTP path and verify `/operations/` changes.
+
+Status: completed and running locally.
+
+Delivered:
+
+- `GET :7650/api/inspect/:wallet` now emits one sanitized observation after successful real Kamino/Solana inspection.
+- Wallet identity is stored only as a SHA-256 pseudonymous subject ID; raw wallet, auth data, signed transactions, and secrets are rejected/not emitted.
+- `POST :7610/api/operations/observations` validates a strict schema, bounds bodies, persists target/evidence/telemetry, and uses existing bearer protection when configured.
+- Local Kamino launcher defaults the bridge to `http://127.0.0.1:7610`; bridge failure never breaks wallet inspection.
+
+Live verification:
+
+- Before inspection: 0 operations targets.
+- Real local inspection found 0.646418 Steakhouse USDG shares and active expected ProgramData authority.
+- After inspection: 1 Kamino vault target, 1 position link, 1 provider sample, provider state `available`, measured latency ~821 ms.
+- `/operations/` remains live at `http://127.0.0.1:7610/operations/`; local app remains live at `http://127.0.0.1:7650/#`.
+- Focused bridge/Kamino tests: 38/38 passing.
+- Full repository suite: 272/272 passing.
+- `npm run check`, `git diff --check`, and launcher shell syntax: pass.
+
+## Monitoring control-plane expansion — 2026-09-29
+
+Ownership/scope:
+
+- Rename generic operations labels around concrete responsibilities: invariant monitoring, protocol indexers, provider observations, evidence storage, wallet monitoring.
+- Add protocol-indexer drill-down with ONRE-specific counts/history and an extensible multi-protocol API shape.
+- Add provider-labelled hourly continuity history; gaps stay explicit, adverse observations stay visually distinct.
+- Replace host-filesystem percentage pruning policy with a persistent admin-configured evidence-storage quota, initially 50 GB.
+- Preserve public wallet addresses as client-facing IDs in the operations consumer layer and add wallet detail/history/action APIs. Never store auth tokens, signed transaction bytes, seed/private keys, or RPC credentials.
+- Instrument inspection and confirmed/submitted protection actions into the operations API using strict bounded schemas.
+- Use strict RED → GREEN → REFACTOR; verify exact API and rendered browser paths.
+
+Status: in progress.

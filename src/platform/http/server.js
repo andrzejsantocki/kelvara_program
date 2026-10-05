@@ -1,14 +1,20 @@
 import { resolve } from "node:path";
 import { createApp } from "./app.js";
+import { resolveServerConfig } from "./config.js";
 import { inspectIndexer } from "../../domains/indexer/inspect.js";
 import { discoverWallet } from "../../domains/discovery/wallet.js";
 import { createSolanaRpc } from "../solana/rpc.js";
 import { buildOnreBaseline } from "../../domains/protocols/onre/baseline.js";
 import { ONYC_MINT, ONRE_PROGRAM_ID } from "../../domains/discovery/wallet.js";
+import { createConsumerStore } from "../storage/consumer-store.js";
+import { readDiskStats } from "../storage/disk-governor.js";
+import { createOperationsService } from "../../domains/operations/status.js";
+import { createOperationsObservationRecorder } from "../../domains/operations/observations.js";
+import { createJsonStatusStore } from "../../domains/indexer/status-store.js";
 
 const defaultSource = "/home/andy/kelvara-build/[codebase]/indexer_anchor_protocol/indexer.db";
 const sourcePath = resolve(process.env.KELVARA_INDEXER_DB_PATH || defaultSource);
-const port = Number(process.env.PORT || 7610);
+const { host, port, consumerDbPath, statusPath, maintenanceStatusPath, operationsToken } = resolveServerConfig();
 const maxAgeSeconds = Number(process.env.INDEXER_MAX_AGE_SECONDS || 30);
 const tokenPrograms = [
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -33,11 +39,40 @@ async function getAssurance(wallet) {
   return { wallet, sourceStatus: discovery.sourceStatus, position, assurance };
 }
 
+const consumerStore = createConsumerStore({ path: consumerDbPath });
+const ingestionStatus = createJsonStatusStore(statusPath);
+const maintenanceStatus = createJsonStatusStore(maintenanceStatusPath);
+const operations = createOperationsService({
+  store: consumerStore,
+  readIngestionStatus: () => ingestionStatus.read(),
+  diskStats: () => readDiskStats(consumerDbPath),
+  inspectIndexers: () => {
+    const source = inspectIndexer(sourcePath, { maxAgeSeconds });
+    return [{ id: "onre-mainnet", name: "ONRE Mainnet Indexer", protocol: "ONRE", network: "mainnet-beta", sourceType: "producer-sqlite", ...source }];
+  },
+  retention: () => maintenanceStatus.read(),
+});
+const recordOperationObservation = createOperationsObservationRecorder({ store: consumerStore });
 const app = createApp({
   inspectSource: () => inspectIndexer(sourcePath, { maxAgeSeconds }),
   discoverWallet: wallet => discoverWallet(wallet, { rpcs, tokenPrograms }),
   getAssurance,
+  getOperationsStatus: () => operations.getStatus(),
+  getOperationTargets: () => operations.getTargets(),
+  getOperationIndexers: () => operations.getIndexers(),
+  getOperationHistory: options => operations.getHistory(options),
+  getOperationSettings: () => operations.getSettings(),
+  updateOperationSettings: value => operations.updateSettings(value),
+  getOperationClients: () => operations.getClients(),
+  getOperationClient: walletId => operations.getClient(walletId),
+  getOperationWallets: () => operations.getWallets(),
+  getOperationWallet: walletId => operations.getWallet(walletId),
+  recordOperationObservation,
+  operationsToken,
 });
-app.listen(port, "127.0.0.1", () => {
-  console.log(`kelvara-onre listening on http://127.0.0.1:${port}; RPC providers=${rpcs.length}`);
+app.listen(port, host, () => {
+  console.log(`kelvara-onre listening on http://${host}:${port}; RPC providers=${rpcs.length}`);
 });
+function shutdown() { consumerStore.close(); app.close(() => process.exit(0)); }
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

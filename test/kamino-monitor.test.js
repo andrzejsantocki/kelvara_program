@@ -145,6 +145,26 @@ test("serves production health, config and inspection API",async()=>{
  }finally{server.close();await once(server,"close")}
 });
 
+test("wallet inspection emits one sanitized operations observation",async()=>{
+ const observations=[];
+ const operationsSink={record:async value=>observations.push(value)};
+ const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"}),operationsSink});server.listen(0,"127.0.0.1");await once(server,"listening");
+ try{
+  const response=await fetch(`http://127.0.0.1:${server.address().port}/api/inspect/${WALLET}`);assert.equal(response.status,200);
+  assert.equal(observations.length,1);
+  const event=observations[0];
+  assert.equal(event.service,"kamino-monitor");assert.equal(event.event,"wallet_inspection");assert.equal(event.positionFound,true);assert.equal(event.authorityStatus,"active");assert.ok(event.latencyMs>=0);
+  assert.equal(event.walletId,WALLET);
+  assert.equal(event.provider,"solana-public-rpc");
+ }finally{server.close();await once(server,"close")}
+});
+
+test("operations sink failures never break wallet inspection",async()=>{
+ const operationsSink={record:async()=>{throw new Error("operations_unavailable")}};
+ const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"}),operationsSink});server.listen(0,"127.0.0.1");await once(server,"listening");
+ try{const response=await fetch(`http://127.0.0.1:${server.address().port}/api/inspect/${WALLET}`);assert.equal(response.status,200);assert.equal((await response.json()).position.asset,"USDG")}finally{server.close();await once(server,"close")}
+});
+
 test("public frontend targets the dedicated API origin",()=>{
  const root=new URL("../",import.meta.url),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(app,/https:\/\/api\.kelvara\.xyz/);assert.match(app,/function apiUrl/);assert.match(app,/fetch\(apiUrl\(path\)/);
@@ -162,6 +182,14 @@ test("backend enforces exact production CORS and preflight",async()=>{
 test("local frontend module requests are allowed only from the local app",async()=>{
  const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"})});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
  try{const local=await fetch(`${base}/app.js`,{headers:{origin:"http://127.0.0.1:7650"}});assert.equal(local.status,200);assert.equal(local.headers.get("access-control-allow-origin"),"http://127.0.0.1:7650");assert.match(local.headers.get("content-security-policy"),/frame-ancestors 'self'/);const identicon=await fetch(`${base}/animal-identicon.js`,{headers:{origin:"http://127.0.0.1:7650"}});assert.equal(identicon.status,200);assert.match(identicon.headers.get("content-type"),/text\/javascript/)}finally{server.close();await once(server,"close")}
+});
+
+test("serves stable dapp identity metadata and icons for injected wallets",async()=>{
+ const server=createKaminoMonitorServer({inspector:createKaminoInspector({fetchImpl:fixtureFetch(),rpcUrl:"https://rpc"})});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try{const page=await(await fetch(base)).text();for(const value of ['application-name" content="Kelvara"','href="/icon.png"','href="/favicon.ico"','href="/manifest.webmanifest"'])assert.match(page,new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")));
+  for(const [path,type] of [["/assets/kelvara.svg","image/svg+xml"],["/icon.png","image/png"],["/favicon.ico","image/x-icon"],["/manifest.webmanifest","application/manifest+json"]]){const response=await fetch(`${base}${path}`);assert.equal(response.status,200,path);assert.match(response.headers.get("content-type"),new RegExp(type.replace("+","\\+")));assert.ok((await response.arrayBuffer()).byteLength>0)}
+  const manifest=await(await fetch(`${base}/manifest.webmanifest`)).json();assert.equal(manifest.name,"Kelvara");assert.equal(manifest.icons[0].src,"/icon.png");
+ }finally{server.close();await once(server,"close")}
 });
 
 test("wallet avatar opens explicit connect and disconnect controls",()=>{
@@ -217,7 +245,7 @@ test("stale wallet sessions cannot expose positions or safeguards",()=>{
 
 test("pasted address never becomes or restores wallet state",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
- assert.match(html,/Public Solana address/);assert.match(html,/id="inspect"[^>]*>Inspect position</);
+ assert.match(html,/Analyze a public Solana address/);assert.match(html,/id="inspect"[^>]*>Analyze public address</);
  assert.match(app,/async function viewAddress/);assert.match(app,/setViewedAddress\(address\)/);
  assert.match(app,/if\(!animalIdenticonSvg\(address\)\)return toast\("Enter a valid Solana address"\)/);assert.match(app,/\#inspect"\)\.onclick=viewAddress/);
  const viewBody=app.match(/async function viewAddress\(\)\{([^}]|}(?!\n))*}/s)?.[0]||"";
@@ -244,12 +272,12 @@ test("found position leads to selected-position safeguards",()=>{
 
 test("production UI implements the approved assurance-canvas design",()=>{
  const root=new URL("../",import.meta.url);const html=readFileSync(new URL("subapps/kamino-monitor/web/index.html",root),"utf8");const css=readFileSync(new URL("subapps/kamino-monitor/web/styles.css",root),"utf8");const app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
- assert.match(html,/authority-flow-background\.svg/);assert.match(html,/See what controls your onchain positions/);
- assert.match(html,/id="position-list"/);assert.match(html,/id="safeguard-authority"/);assert.match(html,/Keep this position under live watch/);
+ assert.match(html,/class="evidence-preview"/);assert.match(html,/Know when the assumptions behind your position change/);
+ assert.match(html,/Position → assumptions → evidence/);assert.match(html,/id="position-list"/);assert.match(html,/id="safeguard-authority"/);assert.match(html,/Keep this position under live watch/);
  assert.match(html,/Steakhouse USDG High Yield/);assert.match(html,/steakhouse-usdg\.svg/);assert.match(html,/kamino\.svg/);
  assert.doesNotMatch(html,/Start over/);assert.doesNotMatch(html,/7D APY/);assert.doesNotMatch(html,/Inspect evidence/);assert.doesNotMatch(html,/Check now/);
  assert.match(html,/Prepare protection transaction/);assert.match(css,/\.portfolio-shell/);assert.match(css,/prefers-reduced-motion/);
- assert.match(app,/syncDiagram/);assert.match(app,/safeguard-summary/);
+ assert.doesNotMatch(app,/syncDiagram/);assert.match(app,/safeguard-summary/);
 });
 
 test("production UI has no obsolete product navbar or numbered demo journey",()=>{
@@ -276,7 +304,7 @@ test("production UI provides wallet inspection and monitoring surfaces",async()=
   const html=await(await fetch(base)).text();const app=await(await fetch(`${base}/app.js`)).text();
   for(const surface of ["Positions discovered for this wallet","Review what must remain stable","Live protection for this position"])assert.match(html,new RegExp(surface));
   assert.doesNotMatch(html,/class="product-nav"/);
-  assert.match(html,/Connect wallet/);assert.match(html,/Steakhouse USDG High Yield/);assert.match(html,/Activate monitoring/);assert.match(html,/never asks for your private key or seed phrase/i);
+  assert.match(html,/Connect wallet/);assert.match(html,/Steakhouse USDG High Yield/);assert.match(html,/Activate monitoring/);assert.match(html,/never requests a seed phrase or private key/i);
   assert.doesNotMatch(html,/Mainnet MVP|Read-only · no signatures|never asks for a transaction/i);
   assert.match(app,/window\.solana/);assert.match(app,/\/api\/inspect\//);assert.match(app,/underlyingAmount/);assert.match(app,/\.meaning/);
   assert.match(app,/localStorage/);assert.match(app,/setInterval/);assert.match(app,/signTransaction/);assert.doesNotMatch(app,/privateKey|secretKey|seedPhrase/);
