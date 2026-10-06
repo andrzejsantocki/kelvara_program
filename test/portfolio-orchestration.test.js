@@ -61,6 +61,21 @@ test("rejects policy, relationship, and unadvertised batch mismatches", async ()
   }
 });
 
+test("orchestrates two real Kamino targets with human-readable binding names", async () => {
+  const twoTargetManifest = { ...manifest, targets: [
+    { id: "target-commodity", protocolId: "protocol-kamino", kind: "position", name: "Institutional Commodity Yield", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", status: "active" },
+    { id: "target-steakhouse", protocolId: "protocol-kamino", kind: "position", name: "Steakhouse USDG High Yield", address: "BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", status: "active" },
+  ] };
+  const twoTargetConfig = { ...config, protocols: [{ ...config.protocols[0], targetIds: ["target-commodity", "target-steakhouse"] }], targets: twoTargetManifest.targets, bindings: [
+    { bindingId: "binding-commodity", targetId: "target-commodity", ruleId: "rule-1", ruleVersion: 3, display: { name: "Institutional Commodity Yield" } },
+    { bindingId: "binding-steakhouse", targetId: "target-steakhouse", ruleId: "rule-1", ruleVersion: 3, display: { name: "Steakhouse USDG High Yield" } },
+  ] };
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => twoTargetManifest }, controlPlaneClient: { readActive: async () => twoTargetConfig }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.map(target => ({ targetId: target.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: target.name, details: { vault: target.address, totalShares: "1" } })) }) } } });
+  const result = await orchestrator.getPortfolio(WALLET);
+  assert.deepEqual(result.positions.map(item => item.targetId), ["target-commodity", "target-steakhouse"]);
+  assert.deepEqual(result.positions.map(item => item.display), ["Institutional Commodity Yield", "Steakhouse USDG High Yield"]);
+});
+
 test("orchestrates multiple positions and restricts safeguards to discovered targets", async () => {
   const multiManifest = { ...manifest, targets: [
     { id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Commodity", address: "vault-1", status: "active" },
