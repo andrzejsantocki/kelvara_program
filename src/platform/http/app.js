@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { projectProgramBackendSafeguards } from "../../domains/safeguards-projection.js";
 
 const operationsAssets = new Map([
   ["/operations/", [new URL("../../../subapps/operations-console/index.html", import.meta.url), "text/html; charset=utf-8"]],
@@ -39,7 +40,7 @@ async function readJson(request, limit = 16_384) {
   catch { throw new SyntaxError("invalid_json"); }
 }
 
-export function createApp({ inspectSource, discoverWallet = null, getAssurance = null, getOperationsStatus = null, getOperationTargets = null, getOperationIndexers = null, getOperationHistory = null, getOperationSettings = null, updateOperationSettings = null, getOperationClients = null, getOperationClient = null, getOperationWallets = null, getOperationWallet = null, recordOperationObservation = null, operationsToken = null }) {
+export function createApp({ inspectSource, discoverWallet = null, getAssurance = null, getSafeguards = null, privateSafeguardToken = null, getOperationsStatus = null, getOperationTargets = null, getOperationIndexers = null, getOperationHistory = null, getOperationSettings = null, updateOperationSettings = null, getOperationClients = null, getOperationClient = null, getOperationWallets = null, getOperationWallet = null, recordOperationObservation = null, operationsToken = null }) {
   return createServer(async (request, response) => {
     const url = new URL(request.url, "http://localhost");
     if (operationsToken && url.pathname.startsWith("/api/operations/") && request.headers.authorization !== `Bearer ${operationsToken}`) {
@@ -130,7 +131,18 @@ export function createApp({ inspectSource, discoverWallet = null, getAssurance =
     const walletMatch = request.method === "GET" && url.pathname.match(/^\/api\/wallets\/([^/]+)\/positions$/);
     if (walletMatch && discoverWallet) {
       try {
-        return json(response, 200, await discoverWallet(decodeURIComponent(walletMatch[1])));
+        const wallet = decodeURIComponent(walletMatch[1]);
+        const discovery = await discoverWallet(wallet);
+        if (!getSafeguards) return json(response, 200, discovery);
+        let projection;
+        try {
+          const input = await getSafeguards(wallet);
+          projection = projectProgramBackendSafeguards({ ...input, positions: input.positions || discovery.positions }, { authenticatedWallet: privateSafeguardToken && request.headers.authorization === `Bearer ${privateSafeguardToken}` ? wallet : undefined });
+        } catch {
+          const input = await getSafeguards(wallet).catch(() => null);
+          projection = input ? projectProgramBackendSafeguards({ ...input, positions: input.positions || discovery.positions, privateByWallet: {} }) : { policyRevision: 0, positions: discovery.positions.map(position => ({ ...position, safeguards: [] })) };
+        }
+        return json(response, 200, { ...discovery, ...projection });
       } catch (error) {
         const status = error.message === "invalid_wallet" ? 400 : error.message === "all_rpc_sources_failed" ? 503 : 500;
         return json(response, status, { error: error.message });
