@@ -95,6 +95,30 @@ test("orchestrates multiple positions and restricts safeguards to discovered tar
   assert.equal(result.coverage.expected, 2);
 });
 
+test("owner private enrollment produces bounded private scope in serialized portfolio", async () => {
+  const privateEnrollment = { bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2, display: { name: "Owner safeguard" }, enrollmentId: "must-not-leak", permit: "must-not-leak" };
+  const privateReceipt = { receiptId: "private-receipt", idempotencyKey: "private-key", policyRevision: 7, ruleId: "owner-rule", ruleVersion: 2, bindingId: "owner-binding", targetId: "target-1", evidenceRefs: ["private-observation"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } };
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => ({ enrollments: [privateEnrollment], receipt: { alg: "Ed25519", walletId: WALLET, signature: "redacted" } }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }), readPrivateExact: async (_receipt, _revision, identities) => { assert.deepEqual(identities, [{ bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2 }]); return { policyRevision: 7, receipts: [privateReceipt] }; } }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  const serialized = JSON.parse(JSON.stringify(await orchestrator.getPortfolio(WALLET, { authenticatedWallet: WALLET })));
+  assert.deepEqual(serialized.safeguards.map(item => item.scope), ["global", "owner-private"]);
+  const privateItem = serialized.safeguards.find(item => item.scope === "owner-private");
+  assert.equal(privateItem.result, "pass");
+  assert(!JSON.stringify(serialized).includes("enrollmentId")); assert(!JSON.stringify(serialized).includes("permit")); assert(!JSON.stringify(serialized).includes("signature"));
+});
+
+test("private timeout preserves owner-private unknown safeguard while globals remain", async () => {
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => ({ enrollments: [{ bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2, display: { name: "Owner safeguard" } }], receipt: { walletId: WALLET } }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }), readPrivateExact: async () => { throw new Error("timeout"); } }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  const result = await orchestrator.getPortfolio(WALLET, { authenticatedWallet: WALLET });
+  assert.deepEqual(result.safeguards.map(item => [item.scope, item.result, item.reason]), [["global", "pass", undefined], ["owner-private", "unknown", "private_receipt_unavailable"]]);
+});
+
+test("public and wrong-owner portfolios omit private bindings", async () => {
+  let privateReads = 0;
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => { privateReads++; return { enrollments: [{ bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2 }] }; } }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  for (const options of [{}, { authenticatedWallet: "11111111111111111111111111111111" }]) { const result = await orchestrator.getPortfolio(WALLET, options); assert.deepEqual(result.safeguards.map(item => item.scope), ["global"]); }
+  assert.equal(privateReads, 0);
+});
+
 test("missing exact receipt remains explicit unknown binding", async () => {
   const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "target-1", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
   const result = await orchestrator.getPortfolio(WALLET);
