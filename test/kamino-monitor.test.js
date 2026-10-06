@@ -126,6 +126,24 @@ test("production UI auto-retries a freshly deposited position",async()=>{
  assert.match(app,/pendingTimer=setInterval/);assert.match(app,/10000/);assert.match(app,/pending-wallet/);
 });
 
+test("portfolio route exposes global data publicly but private data only to matching wallet session",async()=>{
+ const auth=createWalletAuthForTest(WALLET), calls=[];
+ const portfolioOrchestrator={getPortfolio:async(wallet,options)=>{calls.push({wallet,options});return{wallet,positions:[{targetId:"target-1",safeguards:[{bindingId:"global"},...(options?.authenticatedWallet?[{bindingId:"private"}]:[])]}]}}};
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},portfolioOrchestrator,walletAuth:auth});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try {
+  const publicResponse=await fetch(`${base}/api/portfolio/${WALLET}`);assert.equal(publicResponse.status,200);assert.deepEqual((await publicResponse.json()).positions[0].safeguards.map(item=>item.bindingId),["global"]);
+  const token=auth.issue(WALLET).token;
+  const ownerResponse=await fetch(`${base}/api/portfolio/${WALLET}`,{headers:{authorization:`Bearer ${token}`}});assert.equal(ownerResponse.status,200);assert.deepEqual((await ownerResponse.json()).positions[0].safeguards.map(item=>item.bindingId),["global","private"]);
+  const other=auth.issue(AUTHORITY).token;
+  const mismatch=await fetch(`${base}/api/portfolio/${WALLET}`,{headers:{authorization:`Bearer ${other}`}});assert.equal(mismatch.status,200);assert.deepEqual((await mismatch.json()).positions[0].safeguards.map(item=>item.bindingId),["global"]);
+  assert.deepEqual(calls.map(call=>call.options?.authenticatedWallet||null),[null,WALLET,null]);
+ } finally {server.close();await once(server,"close")}
+});
+
+function createWalletAuthForTest(wallet){
+ const sessions=new Map();return{issue(value){const token=`session-${value}`;sessions.set(token,value);return{token}},authorize(token){if(!sessions.has(token))throw new Error("authentication_required");return sessions.get(token)}}
+}
+
 test("server polls control plane without a monitored wallet and deduplicates rollovers",async()=>{
  const nextAdmin="11111111111111111111111111111111",baseline={ruleId:"kamino-kvault-effective-admin-rights",result:"pass",slot:100,observedAt:"2026-09-27T10:00:00.000Z",authorities:{vaultAdmin:{current:VAULT_ADMIN},pendingAdmin:{current:VAULT_ADMIN},allocationAdmin:{current:ALLOCATION_ADMIN},programUpgrade:{current:AUTHORITY}}},changed={...baseline,result:"breach",slot:101,observedAt:"2026-09-27T10:01:00.000Z",authorities:{...baseline.authorities,vaultAdmin:{current:nextAdmin}}};let calls=0;
  const inspector={inspectControlPlane:async()=>({adminRights:calls++?changed:baseline}),inspect:async()=>({})};
