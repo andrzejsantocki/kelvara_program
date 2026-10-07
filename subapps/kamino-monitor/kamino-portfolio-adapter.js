@@ -16,7 +16,7 @@ function normalizeDiscovered(result, protocol) {
   const byAddress = new Map();
   const byId = new Map();
   for (const target of targets) {
-    if (!target || typeof target !== "object" || !validText(target.id) || !validText(target.address) || target.address !== target.address.trim() || !validText(target.name) || target.name !== target.name.trim()) throw new Error("kamino_targets_malformed");
+    if (!target || typeof target !== "object" || !validText(target.id) || !validText(target.address) || target.address !== target.address.trim() || !validText(target.displayName) || target.displayName !== target.displayName.trim()) throw new Error("kamino_targets_malformed");
     if (byAddress.has(target.address) || byId.has(target.id)) throw new Error("kamino_targets_malformed");
     byAddress.set(target.address, target); byId.set(target.id, target);
   }
@@ -29,7 +29,7 @@ function normalizeDiscovered(result, protocol) {
     const details = { vault: item.vault, totalShares: item.totalShares, ...(item.stakedShares !== undefined ? { stakedShares: item.stakedShares } : {}), ...(item.unstakedShares !== undefined ? { unstakedShares: item.unstakedShares } : {}), tokensPerShare: item.tokensPerShare, underlyingAmount: item.underlyingAmount, apy7d: item.apy7d ?? null };
     for (const key of ["stakedShares", "unstakedShares"]) if (details[key] !== undefined && !validDecimal(details[key])) throw new Error("kamino_discovery_malformed");
     for (const key of ["asset", "sharesMint", "underlyingMint"]) if (item[key] !== undefined) { if (!validText(item[key])) throw new Error("kamino_discovery_malformed"); details[key] = item[key]; }
-    return { targetId: target.id, protocol: "kamino", adapterId: protocol.discoveryAdapterId || "kamino", adapterVersion: protocol.discoveryAdapterVersion ?? 1, display: target.name, details };
+    return { targetId: target.id, protocol: "kamino", adapterId: protocol.discoveryAdapterId || "kamino", adapterVersion: protocol.discoveryAdapterVersion ?? 1, display: target.displayName, details };
   });
   return { ...result, positions };
 }
