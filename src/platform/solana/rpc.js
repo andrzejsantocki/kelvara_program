@@ -1,4 +1,22 @@
 let nextId = 1;
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
+async function readBoundedJson(response, label) {
+  if (!response || !response.ok) throw new Error(`${label}_http_error`);
+  let raw = "";
+  if (response.body && Symbol.asyncIterator in Object(response.body)) {
+    for await (const chunk of response.body) {
+      raw += Buffer.from(chunk).toString("utf8");
+      if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`);
+    }
+  } else if (typeof response.text === "function") {
+    const declared = Number(response.headers?.get?.("content-length") ?? response.headers?.["content-length"]);
+    if (!Number.isInteger(declared) || declared < 0 || declared > MAX_RESPONSE_BYTES) throw new Error(`${label}_unbounded_response`);
+    raw = await response.text();
+    if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`);
+  } else throw new Error(`${label}_unbounded_response`);
+  try { return JSON.parse(raw); } catch { throw new Error(`${label}_malformed`); }
+}
 
 export function createSolanaRpc(url, { name = "rpc", fetchImpl = fetch } = {}) {
   async function call(method, params) {
@@ -8,7 +26,7 @@ export function createSolanaRpc(url, { name = "rpc", fetchImpl = fetch } = {}) {
       body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }),
     });
     if (!response.ok) throw new Error(`${name}: HTTP ${response.status}`);
-    const payload = await response.json();
+    const payload = await readBoundedJson(response, `${name}_rpc`);
     if (payload.error) throw new Error(`${name}: ${payload.error.message || "RPC error"}`);
     return payload.result;
   }

@@ -11,7 +11,7 @@ test("RPC adapter converts jsonParsed token accounts without losing raw amount",
     name: "fixture",
     fetchImpl: async (_url, init) => {
       calls.push(JSON.parse(init.body));
-      return { ok: true, json: async () => ({ jsonrpc: "2.0", id: 1, result: { context: { slot: 9 }, value: [{ pubkey: "acct", account: { owner: TOKEN, data: { parsed: { info: { mint: WALLET, owner: WALLET, tokenAmount: { amount: "123", decimals: 2 } } } } } }] } }) };
+      const payload = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { context: { slot: 9 }, value: [{ pubkey: "acct", account: { owner: TOKEN, data: { parsed: { info: { mint: WALLET, owner: WALLET, tokenAmount: { amount: "123", decimals: 2 } } } } } }] } }); return { ok: true, headers: new Headers({"content-length": String(Buffer.byteLength(payload))}), text: async () => payload };
     },
   });
   const rows = await rpc.getTokenAccounts(WALLET, TOKEN);
@@ -22,7 +22,7 @@ test("RPC adapter converts jsonParsed token accounts without losing raw amount",
 test("RPC JSON error becomes provider error without leaking URL", async () => {
   const rpc = createSolanaRpc("https://secret.invalid/?api-key=secret", {
     name: "fixture",
-    fetchImpl: async () => ({ ok: true, json: async () => ({ error: { code: 429, message: "rate limit" } }) }),
+    fetchImpl: async () => { const payload = JSON.stringify({ error: { code: 429, message: "rate limit" } }); return { ok: true, headers: new Headers({"content-length": String(Buffer.byteLength(payload))}), text: async () => payload }; },
   });
   await assert.rejects(() => rpc.getTokenAccounts(WALLET, TOKEN), error => {
     assert.match(error.message, /fixture.*rate limit/);
