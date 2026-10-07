@@ -4,23 +4,19 @@ import { PublicKey } from "@solana/web3.js";
 
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
-async function readBoundedJson(response, label) {
+async function readBoundedJson(response, label, timeoutMs = 2000) {
   if (!response || !response.ok) throw new Error(`${label}_http_error`);
-  let raw = "";
-  if (response.body && Symbol.asyncIterator in Object(response.body)) {
-    for await (const chunk of response.body) {
-      raw += Buffer.from(chunk).toString("utf8");
-      if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`);
-    }
-  } else if (typeof response.text === "function") {
-    const declared = Number(response.headers?.get?.("content-length") ?? response.headers?.["content-length"]);
-    if (!Number.isInteger(declared) || declared < 0 || declared > MAX_RESPONSE_BYTES) throw new Error(`${label}_unbounded_response`);
-    raw = await response.text();
+  let timer;
+  try {
+    const raw = await Promise.race([
+      response.body && typeof response.body[Symbol.asyncIterator] === "function"
+        ? (async () => { const chunks = []; let total = 0; for await (const chunk of response.body) { const bytes = Buffer.from(chunk); total += bytes.length; if (total > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`); chunks.push(bytes); } return Buffer.concat(chunks).toString("utf8"); })()
+        : (() => { const declared = Number(response.headers?.get?.("content-length") ?? response.headers?.["content-length"]); if (!Number.isInteger(declared) || declared < 0 || declared > MAX_RESPONSE_BYTES || typeof response.text !== "function") throw new Error(`${label}_unbounded_response`); return response.text(); })(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label}_timeout`)), timeoutMs); }),
+    ]);
     if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`);
-  } else {
-    throw new Error(`${label}_unbounded_response`);
-  }
-  try { return JSON.parse(raw); } catch { throw new Error(`${label}_malformed`); }
+    try { return JSON.parse(raw); } catch { throw new Error(`${label}_malformed`); }
+  } finally { clearTimeout(timer); }
 }
 
 export { readBoundedJson };
@@ -54,7 +50,7 @@ export function createGenesisVerifier({network, rpcUrl, fetchImpl=fetch, timeout
       try {
         const request = fetchImpl(rpcUrl, { method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({jsonrpc:"2.0", id:1, method:"getGenesisHash", params:[]}), signal: controller.signal });
-        const readResponse = async () => readBoundedJson(await request, "genesis_rpc");
+        const readResponse = async () => readBoundedJson(await request, "genesis_rpc", timeoutMs);
         const body = await Promise.race([readResponse(), new Promise((_, reject) => setTimeout(() => reject(new Error("genesis_rpc_timeout")), Math.max(1, timeoutMs)))]);
         if (!body || body.jsonrpc !== "2.0" || body.id !== 1 || typeof body.result !== "string" || body.error) throw new Error("genesis_rpc_malformed");
         const expected = NETWORK_GENESIS[network];

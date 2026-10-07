@@ -13,7 +13,8 @@ function bindingHeaders(){const headers={"x-kelvara-network":SESSION_NETWORK};if
 let evacuationApi;
 async function request(path,authenticated=false){return evacuationApi.request(path,{authenticated})}
 async function post(path,body={},authenticated=false){return evacuationApi.post(path,body,{authenticated})}
-async function protectionRequest(path,options={}){const headers={...(options.headers||{}),...bindingHeaders(),authorization:`Bearer ${protectionToken}`};const response=await fetch(apiUrl(path),{...options,headers});const data=await response.json();if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);return data}
+// fetch(apiUrl(path)) is centralized in evacuation-client's bounded executor.
+async function protectionRequest(path,options={}){return evacuationApi.request(path,{authenticated:false,headers:{...(options.headers||{}),...bindingHeaders(),authorization: `Bearer ${protectionToken}`}})}
 evacuationApi=createApiClient({apiUrl,network:SESSION_NETWORK,getGenesis:()=>sessionGenesis,getToken:()=>protectionToken,authenticate:authenticateProtection});
 function walletProvider(kind){if(kind==="phantom")return window.phantom?.solana||(window.solana?.isPhantom?window.solana:null);if(kind==="solflare")return window.solflare||(window.solana?.isSolflare?window.solana:null);if(kind==="backpack")return window.backpack?.solana||window.backpack||(window.solana?.isBackpack?window.solana:null);return null}
 function provider(){return activeProvider||walletProvider(walletSource)}
