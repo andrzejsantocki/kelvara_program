@@ -44,7 +44,7 @@ export function createGenesisVerifier({network, rpcUrl, fetchImpl=fetch, timeout
             raw = await response.text();
             if (raw.length > 64 * 1024) throw new Error("genesis_rpc_body_too_large");
           } else if (typeof response.json === "function") {
-            raw = JSON.stringify(await response.json());
+            throw new Error("genesis_rpc_unbounded_response");
           } else throw new Error("genesis_rpc_malformed");
           try { return JSON.parse(raw); } catch { throw new Error("genesis_rpc_malformed"); }
         };

@@ -12,7 +12,7 @@ function rpcFetch(body, {status=200, malformed=false, delay=0}={}) {
   assert.equal(options.method, "POST");
   assert.deepEqual(JSON.parse(options.body), {jsonrpc:"2.0", id:1, method:"getGenesisHash", params:[]});
   if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-  return {ok: status >= 200 && status < 300, status, json: async () => malformed ? {} : {jsonrpc:"2.0", id:1, result:body}};
+  return {ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(malformed ? {} : {jsonrpc:"2.0", id:1, result:body}), json: async () => malformed ? {} : {jsonrpc:"2.0", id:1, result:body}};
  };
 }
 
@@ -47,6 +47,8 @@ test("unsupported network and missing binding fail closed", async () => {
 });
 
 test("RPC timeout covers a delayed response body and bounds malformed oversized bodies", async () => {
+ const jsonOnlyOversized = async () => ({ok:true,status:200,json:async()=>({jsonrpc:"2.0",id:1,result:MAINNET,padding:"x".repeat(70_000)})});
+ await assert.rejects(createGenesisVerifier({network:"mainnet-beta",rpcUrl:"http://rpc.test",fetchImpl:jsonOnlyOversized}).verify(),/unbounded|body_too_large|malformed/i)
  const delayed = async () => ({ok:true,status:200,body:(async function*(){await new Promise(r=>setTimeout(r,40));yield Buffer.from('{"jsonrpc":"2.0","id":1,"result":"'+MAINNET+'"}');})()});
  await assert.rejects(createGenesisVerifier({network:"mainnet-beta",rpcUrl:"http://rpc.test",fetchImpl:delayed,timeoutMs:10}).verify(),/timeout/i);
  const oversized = async () => ({ok:true,status:200,body:(async function*(){yield Buffer.alloc(70_000, 65);})()});
