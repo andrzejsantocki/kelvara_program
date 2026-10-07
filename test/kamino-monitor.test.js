@@ -199,8 +199,8 @@ test("evacuation routes reject missing, wrong, stale bindings before side effect
     const response=await fetch(`${base}${route.path}`,{method:route.method,headers:variant.headers,...(route.body?{body:JSON.stringify(route.body)}:{})});assert.ok([400,401,502,503].includes(response.status));
    }
   }
-  const mismatchPrepare=await fetch(`${base}/api/evacuation/prepare`,{method:"POST",headers:headers(),body:JSON.stringify({wallet:AUTHORITY,shares:"1"})});assert.equal(mismatchPrepare.status,401,await mismatchPrepare.text());
-  const mismatchSubmit=await fetch(`${base}/api/evacuation/submit`,{method:"POST",headers:headers(),body:JSON.stringify({wallet:AUTHORITY,signedTransaction:"bad"})});assert.equal(mismatchSubmit.status,401);
+  const mismatchPrepare=await fetch(`${base}/api/evacuation/prepare`,{method:"POST",headers:headers(),body:JSON.stringify({network:"mainnet-beta",wallet:AUTHORITY,shares:"1"})});assert.equal(mismatchPrepare.status,401,await mismatchPrepare.text());
+  const mismatchSubmit=await fetch(`${base}/api/evacuation/submit`,{method:"POST",headers:headers(),body:JSON.stringify({network:"mainnet-beta",wallet:AUTHORITY,signedTransaction:"bad"})});assert.equal(mismatchSubmit.status,401);
   assert.equal(calls.prepare,0);assert.equal(calls.authorize,8);
  } finally {server.close();await once(server,"close")}
 });

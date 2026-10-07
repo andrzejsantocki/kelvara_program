@@ -7,7 +7,7 @@ const ADDRESS = "11111111111111111111111111111111";
 test("getAccount preserves raw bytes and account metadata", async () => {
   const rpc = createSolanaRpc("https://rpc.invalid", {
     name: "fixture",
-    fetchImpl: async () => ({ ok: true, json: async () => ({ result: { context: { slot: 77 }, value: { owner: ADDRESS, executable: true, lamports: 42, data: [Buffer.from([2, 3, 4]).toString("base64"), "base64"] } } }) }),
+    fetchImpl: async () => { const payload=JSON.stringify({ result: { context: { slot: 77 }, value: { owner: ADDRESS, executable: true, lamports: 42, data: [Buffer.from([2, 3, 4]).toString("base64"), "base64"] } } }); return {ok:true,headers:new Headers({"content-length":String(Buffer.byteLength(payload))}),text:async()=>payload}; },
   });
   const account = await rpc.getAccount(ADDRESS);
   assert.equal(account.slot, 77);
@@ -20,7 +20,7 @@ test("getAccount preserves raw bytes and account metadata", async () => {
 test("missing account is explicit", async () => {
   const rpc = createSolanaRpc("https://rpc.invalid", {
     name: "fixture",
-    fetchImpl: async () => ({ ok: true, json: async () => ({ result: { context: { slot: 77 }, value: null } }) }),
+    fetchImpl: async () => { const payload=JSON.stringify({ result: { context: { slot: 77 }, value: null } }); return {ok:true,headers:new Headers({"content-length":String(Buffer.byteLength(payload))}),text:async()=>payload}; },
   });
   await assert.rejects(() => rpc.getAccount(ADDRESS), /account_not_found/);
 });
