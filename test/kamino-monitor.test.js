@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { existsSync, readFileSync } from "node:fs";
-import { announcementRegistryFromEnv, createKaminoInspector, createKaminoMonitorServer, evaluateAdminRollovers, KAMINO, RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES, rpc } from "../subapps/kamino-monitor/server.js";
+import { announcementRegistryFromEnv, createKaminoInspector, createKaminoMonitorServer, evaluateAdminRollovers, KAMINO, KAMINO_METRICS_MAX_RESPONSE_BYTES, KAMINO_POSITIONS_MAX_RESPONSE_BYTES, KAMINO_WITHDRAW_MAX_RESPONSE_BYTES, RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES, rpc } from "../subapps/kamino-monitor/server.js";
 
 const WALLET = "883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
 const AUTHORITY = KAMINO.expectedUpgradeAuthority;
