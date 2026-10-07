@@ -12,7 +12,8 @@ function rpcFetch(body, {status=200, malformed=false, delay=0}={}) {
   assert.equal(options.method, "POST");
   assert.deepEqual(JSON.parse(options.body), {jsonrpc:"2.0", id:1, method:"getGenesisHash", params:[]});
   if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-  return {ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(malformed ? {} : {jsonrpc:"2.0", id:1, result:body}), json: async () => malformed ? {} : {jsonrpc:"2.0", id:1, result:body}};
+  const payload=JSON.stringify(malformed ? {} : {jsonrpc:"2.0", id:1, result:body});
+  return {ok: status >= 200 && status < 300, status, headers:new Headers({"content-length":String(Buffer.byteLength(payload))}), text: async () => payload, json: async () => malformed ? {} : {jsonrpc:"2.0", id:1, result:body}};
  };
 }
 
@@ -44,6 +45,11 @@ test("unsupported network and missing binding fail closed", async () => {
  assert.throws(() => createGenesisVerifier({network:"mainnet"}), /unsupported_network|configured/);
  const auth=createNetworkBoundWalletAuth({genesisVerifier:null});
  await assert.rejects(auth.authorize("missing",{network:"mainnet-beta",genesisHash:MAINNET}),/authentication/);
+});
+
+test("text-only responses without a declared size fail closed", async () => {
+ const bodyless = async () => ({ok:true,status:200,text:async()=>JSON.stringify({jsonrpc:"2.0",id:1,result:MAINNET})});
+ await assert.rejects(createGenesisVerifier({network:"mainnet-beta",rpcUrl:"http://rpc.test",fetchImpl:bodyless}).verify(),/unbounded|malformed/i);
 });
 
 test("RPC timeout covers a delayed response body and bounds malformed oversized bodies", async () => {

@@ -2,6 +2,29 @@ import { createHash, randomBytes } from "node:crypto";
 import nacl from "tweetnacl";
 import { PublicKey } from "@solana/web3.js";
 
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
+async function readBoundedJson(response, label) {
+  if (!response || !response.ok) throw new Error(`${label}_http_error`);
+  let raw = "";
+  if (response.body && Symbol.asyncIterator in Object(response.body)) {
+    for await (const chunk of response.body) {
+      raw += Buffer.from(chunk).toString("utf8");
+      if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`);
+    }
+  } else if (typeof response.text === "function") {
+    const declared = Number(response.headers?.get?.("content-length") ?? response.headers?.["content-length"]);
+    if (!Number.isInteger(declared) || declared < 0 || declared > MAX_RESPONSE_BYTES) throw new Error(`${label}_unbounded_response`);
+    raw = await response.text();
+    if (Buffer.byteLength(raw) > MAX_RESPONSE_BYTES) throw new Error(`${label}_body_too_large`);
+  } else {
+    throw new Error(`${label}_unbounded_response`);
+  }
+  try { return JSON.parse(raw); } catch { throw new Error(`${label}_malformed`); }
+}
+
+export { readBoundedJson };
+
 export const NETWORK_GENESIS = Object.freeze({
   "mainnet-beta": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
   devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
@@ -31,23 +54,7 @@ export function createGenesisVerifier({network, rpcUrl, fetchImpl=fetch, timeout
       try {
         const request = fetchImpl(rpcUrl, { method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({jsonrpc:"2.0", id:1, method:"getGenesisHash", params:[]}), signal: controller.signal });
-        const readResponse = async () => {
-          const response = await request;
-          if (!response || !response.ok) throw new Error("genesis_rpc_http_error");
-          let raw = "";
-          if (response.body && Symbol.asyncIterator in Object(response.body)) {
-            for await (const chunk of response.body) {
-              raw += Buffer.from(chunk).toString("utf8");
-              if (raw.length > 64 * 1024) throw new Error("genesis_rpc_body_too_large");
-            }
-          } else if (typeof response.text === "function") {
-            raw = await response.text();
-            if (raw.length > 64 * 1024) throw new Error("genesis_rpc_body_too_large");
-          } else if (typeof response.json === "function") {
-            throw new Error("genesis_rpc_unbounded_response");
-          } else throw new Error("genesis_rpc_malformed");
-          try { return JSON.parse(raw); } catch { throw new Error("genesis_rpc_malformed"); }
-        };
+        const readResponse = async () => readBoundedJson(await request, "genesis_rpc");
         const body = await Promise.race([readResponse(), new Promise((_, reject) => setTimeout(() => reject(new Error("genesis_rpc_timeout")), Math.max(1, timeoutMs)))]);
         if (!body || body.jsonrpc !== "2.0" || body.id !== 1 || typeof body.result !== "string" || body.error) throw new Error("genesis_rpc_malformed");
         const expected = NETWORK_GENESIS[network];
