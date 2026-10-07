@@ -188,6 +188,23 @@ test("public frontend targets the dedicated API origin",()=>{
  assert.match(app,/https:\/\/api\.kelvara\.xyz/);assert.match(app,/function apiUrl/);assert.match(app,/fetch\(apiUrl\(path\)/);
 });
 
+test("evacuation routes reject missing, wrong, stale bindings before side effects",async()=>{
+ const calls={prepare:0,authorize:0};
+ const networkAuth={authFor(network){if(network!=="mainnet-beta")throw new Error("network_verification_unavailable");return{authorize:async(token,binding)=>{calls.authorize++;if(token!=="good")throw new Error("authentication_required");if(binding.network!==network)throw new Error("network_binding_mismatch");if(binding.genesisHash!=="genesis")throw new Error("genesis_binding_stale");return WALLET;}}}};
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({})},networkAuth,prepareEvacuationImpl:async()=>{calls.prepare++;return{}}});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ const headers=(token="good",network="mainnet-beta",genesis="genesis")=>({authorization:`Bearer ${token}`,"x-kelvara-network":network,"x-kelvara-genesis":genesis,"content-type":"application/json"});
+ try {
+  for(const route of [{method:"POST",path:"/api/evacuation/prepare",body:{wallet:WALLET,shares:"1"}},{method:"POST",path:"/api/evacuation/submit",body:{wallet:WALLET,signedTransaction:"bad"}},{method:"GET",path:"/api/evacuation/status/1111111111111111111111111111111111111111111111111111111111111111"}]) {
+   for(const variant of [{headers:{}},{headers:headers("good","devnet","genesis")},{headers:headers("good","mainnet-beta","stale")},{headers:headers("bad")}]) {
+    const response=await fetch(`${base}${route.path}`,{method:route.method,headers:variant.headers,...(route.body?{body:JSON.stringify(route.body)}:{})});assert.ok([400,401,502,503].includes(response.status));
+   }
+  }
+  const mismatchPrepare=await fetch(`${base}/api/evacuation/prepare`,{method:"POST",headers:headers(),body:JSON.stringify({wallet:AUTHORITY,shares:"1"})});assert.equal(mismatchPrepare.status,401,await mismatchPrepare.text());
+  const mismatchSubmit=await fetch(`${base}/api/evacuation/submit`,{method:"POST",headers:headers(),body:JSON.stringify({wallet:AUTHORITY,signedTransaction:"bad"})});assert.equal(mismatchSubmit.status,401);
+  assert.equal(calls.prepare,0);assert.equal(calls.authorize,8);
+ } finally {server.close();await once(server,"close")}
+});
+
 test("auth HTTP contract rejects missing or conflicting network and legacy auth requires explicit test gate",async()=>{
  const legacy={issue:()=>({message:"legacy"}),verify:()=>({token:"legacy"}),authorize:()=>WALLET};
  assert.throws(()=>createKaminoMonitorServer({walletAuth:legacy}),/legacy_auth_requires_explicit_test_gate/);
