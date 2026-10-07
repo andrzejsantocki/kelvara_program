@@ -73,3 +73,13 @@ test("expiry is inclusive at the exact timestamp", async () => {
  const challenge=await auth.issue(WALLET,"mainnet-beta");now=1010;
  await assert.rejects(auth.verify(WALLET,challenge.message,"bad","mainnet-beta"),/invalid_or_expired_challenge/);
 });
+
+test("authorize rejects a valid signed session at its exact expiry", async () => {
+ let now=1000;const verifier={network:"mainnet-beta",verify:async()=>({network:"mainnet-beta",genesisHash:MAINNET})};
+ const auth=createNetworkBoundWalletAuth({genesisVerifier:verifier,ttlMs:10,now:()=>now});
+ const challenge=await auth.issue(WALLET,"mainnet-beta");
+ const signature=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64");
+ const session=await auth.verify(WALLET,challenge.message,signature,"mainnet-beta");
+ now=session.expiresAt;
+ await assert.rejects(auth.authorize(session.token,{network:"mainnet-beta",genesisHash:MAINNET}),/authentication_required/);
+});

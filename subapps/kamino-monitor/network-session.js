@@ -91,7 +91,7 @@ export function createNetworkBoundWalletAuth({genesisVerifier, ttlMs=5*60_000, n
     async authorize(token, binding={}) {
       if (!token) throw new Error("authentication_required");
       const session = sessions.get(hashToken(token));
-      if (!session || session.expiresAt < now()) throw new Error("authentication_required");
+      if (!session || session.expiresAt <= now()) throw new Error("authentication_required");
       if (binding.network !== session.network || binding.genesisHash !== session.genesisHash) throw new Error("network_binding_mismatch");
       const current = await genesisVerifier.verify();
       if (current.genesisHash !== session.genesisHash) throw new Error("genesis_binding_stale");
