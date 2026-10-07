@@ -201,3 +201,16 @@ test("frontend records manual evacuation after confirmation",async()=>{
  assert.match(app,/signature:submitted\.signature/);
  assert.match(app,/evacuationAvailable=status\.armed&&\!status\.completedAt/);
 });
+
+test("embedded evacuation client authenticates and binds prepare submit status requests",async()=>{
+ const {createApiClient}=await import("../subapps/kamino-monitor/web/evacuation-client.js");
+ const calls=[];let token=null;let authenticated=0;
+ const client=createApiClient({apiUrl:path=>`https://api.test${path}`,network:"mainnet-beta",getGenesis:()=>"server-genesis",getToken:()=>token,authenticate:async()=>{authenticated++;token="server-token"},fetchImpl:async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({ok:true}),{status:200})}});
+ await client.post("/api/evacuation/prepare",{wallet:"wallet"},{authenticated:true});
+ await client.post("/api/evacuation/submit",{wallet:"wallet",signedTransaction:"signed"},{authenticated:true});
+ await client.request("/api/evacuation/status/signature",{authenticated:true});
+ assert.equal(authenticated,1);
+ assert.deepEqual(calls.map(call=>call.url),["https://api.test/api/evacuation/prepare","https://api.test/api/evacuation/submit","https://api.test/api/evacuation/status/signature"]);
+ for(const {options} of calls){assert.equal(options.headers.authorization,"Bearer server-token");assert.equal(options.headers["x-kelvara-network"],"mainnet-beta");assert.equal(options.headers["x-kelvara-genesis"],"server-genesis")}
+ assert.deepEqual(JSON.parse(calls[0].options.body),{wallet:"wallet",network:"mainnet-beta"});
+});
