@@ -22,7 +22,7 @@ function fixtureFetch({authority=AUTHORITY,shares="100",rate="1.0707070051125298
  else if(body?.params?.[0]===KAMINO.programData) value={context:{slot:11},value:{owner:KAMINO.loader,data:[programDataBytes(authority).toString("base64"),"base64"],executable:false}};
  else if(body?.params?.[0]===KAMINO.vault) value={context:{slot:12},value:{owner:KAMINO.program,data:[vaultStateBytes(vaultState).toString("base64"),"base64"],executable:false}};
  else throw new Error(`unexpected:${url}`);
- return {ok:true,status:200,json:async()=>String(url).includes("rpc")?{result:value}:value};
+ const payload=String(url).includes("rpc")?{jsonrpc:"2.0",id:1,result:value}:value;return {ok:true,status:200,headers:new Headers(),body:(async function*(){yield Buffer.from(JSON.stringify(payload))})(),json:async()=>payload};
 }}
 
 test("control plane verifies every effective admin against approved baselines",async()=>{
@@ -377,4 +377,17 @@ test("production container runs unprivileged with a health check",()=>{
  const compose=readFileSync(new URL("compose.yaml",root),"utf8");
  assert.match(dockerfile,/USER node/);assert.match(dockerfile,/HEALTHCHECK/);assert.match(dockerfile,/subapps\/kamino-monitor\/server\.js/);
  assert.match(compose,/SOLANA_RPC_URL/);assert.match(compose,/MONITORED_WALLET/);assert.doesNotMatch(compose,/PRIVATE_KEY|SEED_PHRASE|WALLET_FILE/);
+});
+
+
+test("production RPC boundary rejects oversized, bodyless, malformed, and delayed responses",async()=>{
+ const response=(body,{headers={},ok=true,status=200}={})=>({ok,status,headers:new Headers(headers),body});
+ const stream=(chunks)=>({async *[Symbol.asyncIterator](){for(const chunk of chunks)yield Buffer.from(chunk)}});
+ const run=async make=>{const fetchImpl=async(url,options={})=>{if(!String(url).includes("rpc"))throw new Error("unexpected_non_rpc");return make(options)};const result=await createKaminoInspector({fetchImpl,rpcUrl:"https://rpc"}).inspectControlPlane();return result.adminRights.reason};
+ assert.equal(await run(()=>response(stream(["x".repeat(65537)]),{headers:{"content-length":"65537"}})),"rpc_response_too_large");
+ assert.equal(await run(()=>response(stream(["x".repeat(65537)]))),"rpc_response_too_large");
+ assert.equal(await run(()=>response(null)),"rpc_body_unavailable");
+ assert.equal(await run(()=>response(stream(["not-json"]))),"rpc_malformed_json");
+ const delayed=await run(options=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>resolve(response(stream([JSON.stringify({jsonrpc:"2.0",id:1,result:{}})]))),500);options.signal?.addEventListener("abort",()=>{clearTimeout(timer);reject(new DOMException("aborted","AbortError"))},{once:true})}));
+ assert.equal(delayed,"rpc_timeout");
 });

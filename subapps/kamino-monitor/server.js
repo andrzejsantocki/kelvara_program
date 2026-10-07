@@ -63,7 +63,25 @@ function json(res,status,value){res.writeHead(status,{"content-type":"applicatio
 function decimalParts(value){const [whole="0",fraction=""]=String(value).split(".");return{integer:BigInt((whole||"0")+(fraction||"")),scale:fraction.length}}
 function multiplyDecimal(left,right){const a=decimalParts(left),b=decimalParts(right),scale=a.scale+b.scale,raw=(a.integer*b.integer).toString().padStart(scale+1,"0");if(!scale)return raw;const whole=raw.slice(0,-scale)||"0",fraction=raw.slice(-scale).replace(/0+$/,"");return fraction?`${whole}.${fraction}`:whole}
 function decimalAtMost(value,limit){const a=decimalParts(value),b=decimalParts(limit),scale=Math.max(a.scale,b.scale);return a.integer*10n**BigInt(scale-a.scale)<=b.integer*10n**BigInt(scale-b.scale)}
-async function rpc(fetchImpl,url,method,params){const response=await fetchImpl(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})});if(!response.ok)throw new Error(`rpc_http_${response.status}`);const body=await response.json();if(body.error)throw new Error(`rpc_${body.error.code}:${body.error.message}`);return body.result}
+const RPC_MAX_RESPONSE_BYTES=64*1024;
+const RPC_TIMEOUT_MS=250;
+async function readRpcJson(response,signal){
+ if(!response||!response.body)throw new Error("rpc_body_unavailable");
+ const declared=Number(response.headers?.get?.("content-length"));
+ if(Number.isFinite(declared)&&declared>RPC_MAX_RESPONSE_BYTES)throw new Error("rpc_response_too_large");
+ let total=0;const chunks=[];
+ try{for await(const chunk of response.body){const bytes=typeof chunk==="string"?Buffer.from(chunk):Buffer.from(chunk);total+=bytes.byteLength;if(total>RPC_MAX_RESPONSE_BYTES)throw new Error("rpc_response_too_large");chunks.push(bytes);if(signal.aborted)throw new Error("rpc_timeout")}}
+ catch(error){if(error.message==="rpc_response_too_large"||error.message==="rpc_timeout")throw error;if(signal.aborted)throw new Error("rpc_timeout");throw new Error("rpc_body_read_failed")}
+ try{return JSON.parse(Buffer.concat(chunks).toString("utf8"))}catch{throw new Error("rpc_malformed_json")}
+}
+async function rpc(fetchImpl,url,method,params){
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),RPC_TIMEOUT_MS);
+ try{const response=await fetchImpl(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params}),signal:controller.signal});
+  if(!response.ok)throw new Error(`rpc_http_${response.status}`);const body=await readRpcJson(response,controller.signal);
+  if(!body||body.jsonrpc!=="2.0"||body.id!==1||(!Object.hasOwn(body,"result")&&!Object.hasOwn(body,"error")))throw new Error("rpc_invalid_envelope");
+  if(body.error)throw new Error(`rpc_${body.error.code}:${String(body.error.message).slice(0,256)}`);return body.result
+ }catch(error){if(controller.signal.aborted)throw new Error("rpc_timeout");throw error}finally{clearTimeout(timer)}
+}
 async function readJson(req){let raw="";for await(const chunk of req){raw+=chunk;if(raw.length>100000)throw new Error("request_too_large")}try{return JSON.parse(raw||"{}")}catch{throw new Error("invalid_json")}}
 async function lookupAccounts(fetchImpl,rpcUrl,message){return Promise.all(message.addressTableLookups.map(async lookup=>{const result=await rpc(fetchImpl,rpcUrl,"getAccountInfo",[lookup.accountKey.toString(),{encoding:"base64",commitment:"confirmed"}]);if(!result.value)throw new Error("lookup_table_unavailable");return new AddressLookupTableAccount({key:lookup.accountKey,state:AddressLookupTableAccount.deserialize(Buffer.from(result.value.data[0],"base64"))})}))}
 const TOKEN_PROGRAM="TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",TOKEN_2022="TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",ATA_PROGRAM="ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",FARMS_PROGRAM="FarmsPZpWu9i7Kky8tPN37rs2TpmMrAZrC7S7vJa91Hr",COMPUTE_PROGRAM="ComputeBudget111111111111111111111111111111";
