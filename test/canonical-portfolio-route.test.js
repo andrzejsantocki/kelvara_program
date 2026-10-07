@@ -22,7 +22,7 @@ function fakeFetch(url, options = {}) {
 }
 
 function start(orchestrator, walletAuth = { authorize: () => { throw new Error("not_authenticated"); } }) {
-  const server = createKaminoMonitorServer({ portfolioOrchestrator: orchestrator, walletAuth, pollMs: 3600000, inspector: { inspectControlPlane: async () => ({}) } });
+  const server = createKaminoMonitorServer({ portfolioOrchestrator: orchestrator, walletAuth, allowLegacyAuthForTests:true, pollMs: 3600000, inspector: { inspectControlPlane: async () => ({}) } });
   return new Promise(resolve => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
 
