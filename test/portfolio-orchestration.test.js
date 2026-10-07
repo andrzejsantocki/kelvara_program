@@ -3,17 +3,18 @@ import assert from "node:assert/strict";
 import { createPortfolioOrchestrator, createControlPlaneClient, createObservationHubClient } from "../subapps/kamino-monitor/portfolio-orchestrator.js";
 
 const WALLET = "883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
-const manifest = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1 }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active", address: "vault-1" }] };
-// Copied Control Plane producer response: ruleVersions intentionally omit parameters.
-const config = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1, targetIds: ["target-1"] }], targets: [{ id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Kamino position", status: "active", address: "vault-1" }], bindings: [{ bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Kamino" } }], ruleVersions: [{ ruleId: "rule-1", version: 3, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "a".repeat(64) }] };
+const targetAddress = "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6";
+const target = (address = targetAddress, displayName = "Kamino position") => ({ id: `solana:mainnet:protocol-kamino:kvault:${address}`, chain: "solana", network: "mainnet", protocolId: "protocol-kamino", resourceType: "kvault", address, displayName, status: "active", legacyAliases: [] });
+const manifest = { policyRevision: 7, protocols: [{ id: "protocol-kamino", name: "Kamino", chain: "solana", status: "active", discoveryAdapterId: "kamino", discoveryAdapterVersion: 1 }], targets: [target()] };
+const config = { policyRevision: 7, protocols: [{ ...manifest.protocols[0], targetIds: [manifest.targets[0].id] }], targets: [target()], bindings: [{ bindingId: "binding-1", targetId: manifest.targets[0].id, ruleId: "rule-1", ruleVersion: 3, display: { name: "Kamino" } }], ruleVersions: [{ ruleId: "rule-1", version: 3, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "a".repeat(64) }] };
 const position = { protocol: "Kamino Earn", asset: "USDG", totalShares: "10" };
-const receipts = [{ receiptId: "r-1", idempotencyKey: "k-1", policyRevision: 7, ruleId: "rule-1", ruleVersion: 3, bindingId: "binding-1", targetId: "target-1", evidenceRefs: ["obs-1"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } }];
+const receipts = [{ receiptId: "r-1", idempotencyKey: "k-1", policyRevision: 7, ruleId: "rule-1", ruleVersion: 3, bindingId: "binding-1", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", evidenceRefs: ["obs-1"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } }];
 
 function fakeFetch(url, options) {
   const body = JSON.parse(options.body);
   if (url.includes("/internal/v1/config/discovery-manifest")) return Promise.resolve(new Response(JSON.stringify(manifest), { status: 200 }));
-  if (url.endsWith("/internal/v1/config/batch-read")) { assert.deepEqual(body, { targetIds: ["target-1"] }); return Promise.resolve(new Response(JSON.stringify(config), { status: 200 })); }
-  if (url.endsWith("/internal/evaluation-receipts/batch-read")) { assert.deepEqual(body, { policyRevision: 7, targetIds: ["target-1"] }); return Promise.resolve(new Response(JSON.stringify({ policyRevision: 7, receipts }), { status: 200 })); }
+  if (url.endsWith("/internal/v1/config/batch-read")) { assert.deepEqual(body, { targetIds: ["solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6"] }); return Promise.resolve(new Response(JSON.stringify(config), { status: 200 })); }
+  if (url.endsWith("/internal/evaluation-receipts/batch-read")) { assert.deepEqual(body, { policyRevision: 7, targetIds: ["solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6"] }); return Promise.resolve(new Response(JSON.stringify({ policyRevision: 7, receipts }), { status: 200 })); }
   throw new Error(`unexpected ${url} ${JSON.stringify(body)}`);
 }
 
@@ -31,7 +32,7 @@ test("orchestrates serialized Control Plane manifest and exact canonical targets
   let received;
   const orchestrator = createPortfolioOrchestrator({ configUrl: "http://config", receiptsUrl: "http://receipts", token: "x".repeat(32), fetchImpl: fakeFetch, manifestClient: { read: async () => JSON.parse(JSON.stringify(manifest)) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => { received = protocol; return { position }; } } } });
   const result = await orchestrator.getPortfolio(WALLET);
-  assert.deepEqual(received.targetIds, ["target-1"]); assert.deepEqual(received.targets, [manifest.targets[0]]);
+  assert.deepEqual(received.targetIds, ["solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6"]); assert.deepEqual(received.targets, [manifest.targets[0]]);
   assert.equal(result.policyRevision, 7); assert.equal(result.coverage.state, "complete");
 });
 
@@ -44,6 +45,21 @@ test("rejects manifest unknown fields, duplicate IDs, malformed adapter metadata
   ]) {
     const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => bad }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: {} });
     await assert.rejects(orchestrator.getPortfolio(WALLET), /control_plane_malformed|active_targets_unavailable/);
+  }
+});
+
+test("rejects canonical malformed target matrix and protocol-chain mismatch", async () => {
+  const cases = [
+    { ...manifest, targets: [{ id: "legacy", protocolId: "protocol-kamino", kind: "position", name: "legacy", address: "vault-1", status: "active" }] },
+    { ...manifest, targets: [{ ...manifest.targets[0], extra: true }] },
+    { ...manifest, targets: [{ ...manifest.targets[0], address: "not-a-solana-address", id: "solana:mainnet:protocol-kamino:kvault:not-a-solana-address" }] },
+    { ...manifest, targets: [{ ...manifest.targets[0], id: "solana:mainnet:other:kvault:" + manifest.targets[0].address }] },
+    { ...manifest, targets: [manifest.targets[0], { ...manifest.targets[0], address: "BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", id: "solana:mainnet:protocol-kamino:kvault:BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", legacyAliases: ["legacy-alias"] }, { ...manifest.targets[0], legacyAliases: ["legacy-alias"] }] },
+    { ...manifest, protocols: [{ ...manifest.protocols[0], chain: "ethereum" }] },
+  ];
+  for (const bad of cases) {
+    const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => bad }, controlPlaneClient: { readActive: async () => config }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: {} });
+    await assert.rejects(orchestrator.getPortfolio(WALLET), /control_plane_malformed/);
   }
 });
 
@@ -63,42 +79,36 @@ test("rejects policy, relationship, and unadvertised batch mismatches", async ()
 
 test("orchestrates two real Kamino targets with human-readable binding names", async () => {
   const twoTargetManifest = { ...manifest, targets: [
-    { id: "target-commodity", protocolId: "protocol-kamino", kind: "position", name: "Institutional Commodity Yield", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", status: "active" },
-    { id: "target-steakhouse", protocolId: "protocol-kamino", kind: "position", name: "Steakhouse USDG High Yield", address: "BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", status: "active" },
+    target("B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", "Institutional Commodity Yield"),
+    target("BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", "Steakhouse USDG High Yield"),
   ] };
-  const twoTargetConfig = { ...config, protocols: [{ ...config.protocols[0], targetIds: ["target-commodity", "target-steakhouse"] }], targets: twoTargetManifest.targets, bindings: [
-    { bindingId: "binding-commodity", targetId: "target-commodity", ruleId: "rule-1", ruleVersion: 3, display: { name: "Institutional Commodity Yield" } },
-    { bindingId: "binding-steakhouse", targetId: "target-steakhouse", ruleId: "rule-1", ruleVersion: 3, display: { name: "Steakhouse USDG High Yield" } },
+  const twoTargetConfig = { ...config, protocols: [{ ...config.protocols[0], targetIds: twoTargetManifest.targets.map(item => item.id) }], targets: twoTargetManifest.targets, bindings: [
+    { bindingId: "binding-commodity", targetId: twoTargetManifest.targets[0].id, ruleId: "rule-1", ruleVersion: 3, display: { name: "Institutional Commodity Yield" } },
+    { bindingId: "binding-steakhouse", targetId: twoTargetManifest.targets[1].id, ruleId: "rule-1", ruleVersion: 3, display: { name: "Steakhouse USDG High Yield" } },
   ] };
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => twoTargetManifest }, controlPlaneClient: { readActive: async () => twoTargetConfig }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.map(target => ({ targetId: target.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: target.name, details: { vault: target.address, totalShares: "1" } })) }) } } });
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => twoTargetManifest }, controlPlaneClient: { readActive: async () => twoTargetConfig }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.map(target => ({ targetId: target.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: target.displayName, details: { vault: target.address, totalShares: "1" } })) }) } } });
   const result = await orchestrator.getPortfolio(WALLET);
-  assert.deepEqual(result.positions.map(item => item.targetId), ["target-commodity", "target-steakhouse"]);
+  assert.deepEqual(result.positions.map(item => item.targetId), twoTargetManifest.targets.map(item => item.id));
   assert.deepEqual(result.positions.map(item => item.display), ["Institutional Commodity Yield", "Steakhouse USDG High Yield"]);
 });
 
 test("orchestrates multiple positions and restricts safeguards to discovered targets", async () => {
-  const multiManifest = { ...manifest, targets: [
-    { id: "target-1", protocolId: "protocol-kamino", kind: "position", name: "Commodity", address: "vault-1", status: "active" },
-    { id: "target-2", protocolId: "protocol-kamino", kind: "position", name: "Steakhouse", address: "vault-2", status: "active" },
-    { id: "target-3", protocolId: "protocol-kamino", kind: "position", name: "Unrelated", address: "vault-3", status: "active" },
-  ] };
-  const multiConfig = { ...config, protocols: [{ ...config.protocols[0], targetIds: ["target-1", "target-2", "target-3"] }], targets: multiManifest.targets, bindings: [
-    { bindingId: "binding-1", targetId: "target-1", ruleId: "rule-1", ruleVersion: 3, display: { name: "Commodity" } },
-    { bindingId: "binding-2", targetId: "target-2", ruleId: "rule-1", ruleVersion: 3, display: { name: "Steakhouse" } },
-    { bindingId: "binding-3", targetId: "target-3", ruleId: "rule-1", ruleVersion: 3, display: { name: "Unrelated" } },
-  ] };
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => multiManifest }, controlPlaneClient: { readActive: async () => multiConfig }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.slice(0, 2).map(target => ({ targetId: target.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: target.name, details: { vault: target.address, totalShares: "1" } })) }) } } });
+  const target2 = target("BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", "Steakhouse");
+  const target3 = target(WALLET, "Unrelated");
+  const multiManifest = { ...manifest, targets: [manifest.targets[0], target2, target3] };
+  const multiConfig = { ...config, protocols: [{ ...config.protocols[0], targetIds: multiManifest.targets.map(item => item.id) }], targets: multiManifest.targets, bindings: multiManifest.targets.map((item, index) => ({ bindingId: `binding-${index + 1}`, targetId: item.id, ruleId: "rule-1", ruleVersion: 3, display: { name: item.displayName } })) };
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => multiManifest }, controlPlaneClient: { readActive: async () => multiConfig }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts: [] }) }, adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.slice(0, 2).map(target => ({ targetId: target.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: target.displayName, details: { vault: target.address, totalShares: "1" } })) }) } } });
   const result = await orchestrator.getPortfolio(WALLET);
-  assert.deepEqual(result.positions.map(item => item.targetId), ["target-1", "target-2"]);
-  assert.deepEqual(result.safeguards.map(item => item.targetId), ["target-1", "target-2"]);
+  assert.deepEqual(result.positions.map(item => item.targetId), [manifest.targets[0].id, multiManifest.targets[1].id]);
+  assert.deepEqual(result.safeguards.map(item => item.targetId), [manifest.targets[0].id, multiManifest.targets[1].id]);
   assert.equal(result.safeguards[0].result, "unknown");
   assert.equal(result.coverage.expected, 2);
 });
 
 test("owner private enrollment produces bounded private scope in serialized portfolio", async () => {
-  const privateEnrollment = { bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2, display: { name: "Owner safeguard" }, enrollmentId: "must-not-leak", permit: "must-not-leak" };
-  const privateReceipt = { receiptId: "private-receipt", idempotencyKey: "private-key", policyRevision: 7, ruleId: "owner-rule", ruleVersion: 2, bindingId: "owner-binding", targetId: "target-1", evidenceRefs: ["private-observation"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } };
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => ({ enrollments: [privateEnrollment], receipt: { alg: "Ed25519", walletId: WALLET, signature: "redacted" } }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }), readPrivateExact: async (_receipt, _revision, identities) => { assert.deepEqual(identities, [{ bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2 }]); return { policyRevision: 7, receipts: [privateReceipt] }; } }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  const privateEnrollment = { bindingId: "owner-binding", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", ruleId: "owner-rule", ruleVersion: 2, display: { name: "Owner safeguard" }, enrollmentId: "must-not-leak", permit: "must-not-leak" };
+  const privateReceipt = { receiptId: "private-receipt", idempotencyKey: "private-key", policyRevision: 7, ruleId: "owner-rule", ruleVersion: 2, bindingId: "owner-binding", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", evidenceRefs: ["private-observation"], evaluatorVersion: "1", result: "pass", evaluatedAt: "2026-10-01T10:00:00.000Z", observedAt: "2026-10-01T09:59:00.000Z", provenance: { sourceId: "program-backend", schemaVersion: "receipt-v1", producerVersion: "1.0.0" } };
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => ({ enrollments: [privateEnrollment], receipt: { alg: "Ed25519", walletId: WALLET, signature: "redacted" } }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }), readPrivateExact: async (_receipt, _revision, identities) => { assert.deepEqual(identities, [{ bindingId: "owner-binding", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", ruleId: "owner-rule", ruleVersion: 2 }]); return { policyRevision: 7, receipts: [privateReceipt] }; } }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
   const serialized = JSON.parse(JSON.stringify(await orchestrator.getPortfolio(WALLET, { authenticatedWallet: WALLET })));
   assert.deepEqual(serialized.safeguards.map(item => item.scope), ["global", "owner-private"]);
   const privateItem = serialized.safeguards.find(item => item.scope === "owner-private");
@@ -107,26 +117,26 @@ test("owner private enrollment produces bounded private scope in serialized port
 });
 
 test("private timeout preserves owner-private unknown safeguard while globals remain", async () => {
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => ({ enrollments: [{ bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2, display: { name: "Owner safeguard" } }], receipt: { walletId: WALLET } }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }), readPrivateExact: async () => { throw new Error("timeout"); } }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => ({ enrollments: [{ bindingId: "owner-binding", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", ruleId: "owner-rule", ruleVersion: 2, display: { name: "Owner safeguard" } }], receipt: { walletId: WALLET } }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }), readPrivateExact: async () => { throw new Error("timeout"); } }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
   const result = await orchestrator.getPortfolio(WALLET, { authenticatedWallet: WALLET });
   assert.deepEqual(result.safeguards.map(item => [item.scope, item.result, item.reason]), [["global", "pass", undefined], ["owner-private", "unknown", "private_receipt_unavailable"]]);
 });
 
 test("public and wrong-owner portfolios omit private bindings", async () => {
   let privateReads = 0;
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => { privateReads++; return { enrollments: [{ bindingId: "owner-binding", targetId: "target-1", ruleId: "owner-rule", ruleVersion: 2 }] }; } }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => config, readOwnerPrivate: async () => { privateReads++; return { enrollments: [{ bindingId: "owner-binding", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", ruleId: "owner-rule", ruleVersion: 2 }] }; } }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
   for (const options of [{}, { authenticatedWallet: "11111111111111111111111111111111" }]) { const result = await orchestrator.getPortfolio(WALLET, options); assert.deepEqual(result.safeguards.map(item => item.scope), ["global"]); }
   assert.equal(privateReads, 0);
 });
 
 test("missing exact receipt remains explicit unknown binding", async () => {
-  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "target-1", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
+  const orchestrator = createPortfolioOrchestrator({ manifestClient: { read: async () => manifest }, controlPlaneClient: { readActive: async () => ({ ...config, bindings: [...config.bindings, { bindingId: "binding-2", targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", ruleId: "rule-2", ruleVersion: 1, display: { name: "Second" } }], ruleVersions: [...config.ruleVersions, { ruleId: "rule-2", version: 1, evaluatorType: "freshness", evaluatorVersion: "1", evidenceSchema: "fresh-v1", contentHash: "b".repeat(64) }] }) }, observationHubClient: { readLatest: async () => ({ policyRevision: 7, receipts }) }, adapters: { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } } });
   const result = await orchestrator.getPortfolio(WALLET);
   assert.equal(result.safeguards[1].result, "unknown"); assert.equal(result.coverage.state, "partial");
 });
 
 test("rejects empty, unknown-field, and malformed Observation Hub receipts", async () => {
-  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
+  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
   for (const response of [
     { policyRevision: 7, receipts: [] },
     { policyRevision: 7, receipts: [{ ...receipts[0], secret: "nope" }] },
@@ -147,7 +157,7 @@ test("rejects non-positive revisions and versions in serialized config", async (
 });
 
 test("rejects non-canonical timestamps and open or unbounded provenance", async () => {
-  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
+  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
   for (const badReceipt of [
     { ...receipts[0], evaluatedAt: "2026-02-30T10:00:00.000Z" },
     { ...receipts[0], observedAt: "2026-10-01T09:59:00+00:00" },
@@ -160,7 +170,7 @@ test("rejects non-canonical timestamps and open or unbounded provenance", async 
 });
 
 test("rejects receipt identity mismatches and duplicate exact identities", async () => {
-  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "target-1", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
+  const discovering = { "kamino@1": { discover: async () => ({ position: { targetId: "solana:mainnet:protocol-kamino:kvault:B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: "Kamino", details: { vault: "vault-1" } } }) } };
   const cases = [
     [{ ...receipts[0], bindingId: "unknown-binding" }],
     [{ ...receipts[0], targetId: "target-other" }],

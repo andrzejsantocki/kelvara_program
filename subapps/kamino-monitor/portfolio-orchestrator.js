@@ -25,7 +25,14 @@ function requireToken(value) { if (typeof value !== "string" || value.length < 3
 async function postJson(url, token, payload, fetchImpl, label) { const response = await fetchImpl(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(payload), signal: AbortSignal.timeout(2000) }); if (!response.ok) throw new Error(`${label}_unavailable`); let body; try { body = await response.json(); } catch { throw new Error(`${label}_malformed`); } if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error(`${label}_malformed`); return body; }
 function closedObject(value, fields, label) { if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !fields.has(key))) throw new Error(`${label}_malformed`); return value; }
 function validId(value) { return typeof value === "string" && ID_PATTERN.test(value) && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value); }
-function validTargetAddress(value) { return typeof value === "string" && value.length > 0 && value.length <= 256 && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value); }
+function validTargetAddress(value, chain) { return chain === "solana" ? validateSolanaAddress(value) : typeof value === "string" && value.length > 0 && value.length <= 256 && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value); }
+function validateTarget(target) {
+  if (!["id", "chain", "network", "protocolId", "resourceType", "address", "displayName", "status"].every(key => typeof target[key] === "string" && target[key]) || !Array.isArray(target.legacyAliases) || target.legacyAliases.length > 32 || target.legacyAliases.some(alias => !validId(alias) || alias === target.id) || !validTargetAddress(target.address, target.chain) || target.id !== `${target.chain}:${target.network}:${target.protocolId}:${target.resourceType}:${target.address}`) throw new Error("control_plane_malformed");
+}
+function validateAliasCollisions(targets) {
+  const ids = new Set(targets.map(target => target.id)); const aliases = new Set();
+  for (const target of targets) for (const alias of target.legacyAliases) { if (ids.has(alias) || aliases.has(alias)) throw new Error("control_plane_malformed"); aliases.add(alias); }
+}
 function validDisplayName(value) { return typeof value === "string" && value.length > 0 && value.length <= 256 && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value); }
 function uniqueIds(items, field = "id") { const ids = items.map(item => item[field]); if (ids.some(id => !validId(id)) || new Set(ids).size !== ids.length) throw new Error("control_plane_malformed"); }
 function validVersion(value) { return Number.isSafeInteger(value) && value >= 1; }
@@ -37,11 +44,12 @@ function validateManifest(body) {
   const manifest = closedObject(body, MANIFEST_FIELDS, "control_plane");
   if (!Number.isSafeInteger(manifest.policyRevision) || manifest.policyRevision < 1 || !Array.isArray(manifest.protocols) || !Array.isArray(manifest.targets)) throw new Error("control_plane_malformed");
   manifest.protocols.forEach(protocol => { closedObject(protocol, MANIFEST_PROTOCOL_FIELDS, "control_plane"); if (!["name", "chain", "status", "discoveryAdapterId"].every(key => typeof protocol[key] === "string" && protocol[key])) throw new Error("control_plane_malformed"); if (!validVersion(protocol.discoveryAdapterVersion)) throw new Error("control_plane_malformed"); });
-  manifest.targets.forEach(target => { closedObject(target, MANIFEST_TARGET_FIELDS, "control_plane"); if (!["id", "chain", "network", "protocolId", "resourceType", "address", "displayName", "status"].every(key => typeof target[key] === "string" && target[key]) || !Array.isArray(target.legacyAliases) || target.legacyAliases.some(alias => !validId(alias)) || !validTargetAddress(target.address) || target.id !== `${target.chain}:${target.network}:${target.protocolId}:${target.resourceType}:${target.address}`) throw new Error("control_plane_malformed"); });
+  manifest.targets.forEach(target => { closedObject(target, MANIFEST_TARGET_FIELDS, "control_plane"); validateTarget(target); });
+  validateAliasCollisions(manifest.targets);
   uniqueIds(manifest.protocols); uniqueIds(manifest.targets);
   const protocols = new Map(manifest.protocols.map(protocol => [protocol.id, protocol]));
   if (manifest.protocols.length === 0 || manifest.targets.length === 0 || manifest.protocols.every(protocol => protocol.status !== "active") || manifest.targets.every(target => target.status !== "active")) throw new Error("active_targets_unavailable");
-  for (const target of manifest.targets) if (!protocols.has(target.protocolId)) throw new Error("control_plane_malformed");
+  for (const target of manifest.targets) if (!protocols.has(target.protocolId) || protocols.get(target.protocolId).chain !== target.chain) throw new Error("control_plane_malformed");
   return manifest;
 }
 function normalizeConfig(body) {
@@ -49,10 +57,11 @@ function normalizeConfig(body) {
   if (!Number.isSafeInteger(config.policyRevision) || config.policyRevision < 1 || !Array.isArray(config.protocols) || !Array.isArray(config.targets) || !Array.isArray(config.bindings) || !Array.isArray(config.ruleVersions) || config.ruleVersions.length > 1000) throw new Error("control_plane_malformed");
   config.ruleVersions.forEach(validRuleVersion); const rules = new Set(config.ruleVersions.map(rule => `${rule.ruleId}:${rule.version}`)); if (new Set(config.bindings.map(binding => binding.bindingId)).size !== config.bindings.length) throw new Error("control_plane_malformed");
   config.protocols.forEach(protocol => { closedObject(protocol, CONFIG_PROTOCOL_FIELDS, "control_plane"); if (!["id", "name", "chain", "status", "discoveryAdapterId"].every(key => typeof protocol[key] === "string" && protocol[key]) || !validVersion(protocol.discoveryAdapterVersion) || !Array.isArray(protocol.targetIds)) throw new Error("control_plane_malformed"); });
-  config.targets.forEach(target => { closedObject(target, CONFIG_TARGET_FIELDS, "control_plane"); if (!["id", "chain", "network", "protocolId", "resourceType", "address", "displayName", "status"].every(key => typeof target[key] === "string" && target[key]) || !Array.isArray(target.legacyAliases) || target.legacyAliases.some(alias => !validId(alias)) || !validTargetAddress(target.address) || target.id !== `${target.chain}:${target.network}:${target.protocolId}:${target.resourceType}:${target.address}`) throw new Error("control_plane_malformed"); });
+  config.targets.forEach(target => { closedObject(target, CONFIG_TARGET_FIELDS, "control_plane"); validateTarget(target); });
+  validateAliasCollisions(config.targets);
   uniqueIds(config.protocols); uniqueIds(config.targets); config.protocols.forEach(protocol => { if (new Set(protocol.targetIds).size !== protocol.targetIds.length || protocol.targetIds.some(id => !validId(id))) throw new Error("control_plane_malformed"); });
   config.bindings.forEach(binding => { closedObject(binding, BINDING_FIELDS, "control_plane"); if (!["bindingId", "targetId", "ruleId"].every(key => validId(binding[key])) || !validVersion(binding.ruleVersion) || !binding.display || typeof binding.display !== "object" || Array.isArray(binding.display) || Object.keys(binding.display).some(key => key !== "name") || !validDisplayName(binding.display.name) || !rules.has(`${binding.ruleId}:${binding.ruleVersion}`) || !config.targets.some(target => target.id === binding.targetId) || !config.protocols.some(protocol => protocol.targetIds.includes(binding.targetId) && config.targets.some(target => target.id === binding.targetId && target.protocolId === protocol.id))) throw new Error("control_plane_malformed"); });
-  if (config.protocols.some(protocol => protocol.targetIds.some(targetId => !config.targets.some(target => target.id === targetId && target.protocolId === protocol.id)))) throw new Error("control_plane_malformed");
+  if (config.protocols.some(protocol => protocol.targetIds.some(targetId => !config.targets.some(target => target.id === targetId && target.protocolId === protocol.id && target.chain === protocol.chain)))) throw new Error("control_plane_malformed");
   return config;
 }
 function validateAgainstManifest(config, manifest) {

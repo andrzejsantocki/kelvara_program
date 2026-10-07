@@ -73,7 +73,7 @@ export function createKaminoInspector({fetchImpl=fetch,rpcUrl=process.env.SOLANA
   return {inspectControlPlane,async discoverPositions(wallet, targets){
     if(!validateSolanaAddress(wallet)||!Array.isArray(targets)||targets.length>100)throw new Error("kamino_discovery_malformed");
     const byAddress=new Map();
-    for(const target of targets){if(!target||typeof target.id!=="string"||typeof target.address!=="string"||!target.address||typeof target.name!=="string"||!target.name||byAddress.has(target.address))throw new Error("kamino_targets_malformed");byAddress.set(target.address,target)}
+    for(const target of targets){if(!target||typeof target.id!=="string"||target.network!=="mainnet"||typeof target.address!=="string"||!target.address||typeof target.displayName!=="string"||!target.displayName||byAddress.has(target.address))throw new Error("kamino_targets_malformed");byAddress.set(target.address,target)}
     const headers={"user-agent":"kelvara-kamino-monitor/0.1","origin":"https://kamino.com","referer":"https://kamino.com/"};
     const response=await fetchImpl(`${kaminoApiUrl}/kvaults/users/${wallet}/positions`,{headers});
     if(!response.ok)throw new Error(`kamino_positions_http_${response.status}`);

@@ -10,8 +10,8 @@ test("Kamino adapter normalizes legacy position with numeric manifest metadata",
 
 test("Kamino adapter maps every discovered canonical vault position", async () => {
   const targets = [
-    { id: "target-commodity", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", name: "Institutional Commodity Yield" },
-    { id: "target-steakhouse", address: "BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", name: "Steakhouse USDG" },
+    { id: "target-commodity", chain: "solana", network: "mainnet", protocolId: "kamino", resourceType: "kvault", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", displayName: "Institutional Commodity Yield" },
+    { id: "target-steakhouse", chain: "solana", network: "mainnet", protocolId: "kamino", resourceType: "kvault", address: "BoZDRc1RDY9FzUZZ19WT4GbtTnnbXQ8AGSU5ByEw3ut5", displayName: "Steakhouse USDG" },
   ];
   let calls = 0;
   const adapter = createKaminoPortfolioAdapter({ inspector: { inspect: async () => { throw new Error("legacy_path_must_not_run"); }, discoverPositions: async (_wallet, received) => { calls++; assert.deepEqual(received, targets); return { positions: targets.map((target, index) => ({ vault: target.address, totalShares: String(index + 1), tokensPerShare: "2", underlyingAmount: String((index + 1) * 2), apy7d: "0.1" })) }; } } });
@@ -30,8 +30,14 @@ test("Kamino adapter accepts discoverPositions-only inspectors", async () => {
   assert.deepEqual(result.positions, []);
 });
 
+test("Kamino adapter rejects non-mainnet targets", async () => {
+  const target = { id: "target-1", chain: "solana", network: "devnet", protocolId: "kamino", resourceType: "kvault", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", displayName: "Yield" };
+  const adapter = createKaminoPortfolioAdapter({ inspector: { discoverPositions: async () => ({ positions: [] }) } });
+  await assert.rejects(() => adapter.discover("883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62", { targets: [target], targetIds: [target.id] }), /kamino_targets_malformed/);
+});
+
 test("Kamino adapter rejects malformed matched rows and optional metadata", async () => {
-  const target = { id: "target-1", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", name: "Yield" };
+  const target = { id: "target-1", chain: "solana", network: "mainnet", protocolId: "kamino", resourceType: "kvault", address: "B5pjfZAiKjyUEuqB2694NHrsjcaM67uuJaWqjzTVtzR6", displayName: "Yield" };
   const adapter = createKaminoPortfolioAdapter({ inspector: { discoverPositions: async () => ({ positions: [{ vault: target.address, totalShares: "1", tokensPerShare: "2", underlyingAmount: "2", asset: "bad\nasset" }] }) } });
   await assert.rejects(() => adapter.discover("883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62", { targets: [target], targetIds: [target.id] }), /kamino_discovery_malformed/);
 });

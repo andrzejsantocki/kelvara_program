@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { createKaminoMonitorServer } from "../subapps/kamino-monitor/server.js";
 
 const wallet = "7sXHKv8RJG4ENmiDSpBEgiEnktJXPaVEmq2a8QBsvEgJ";
@@ -37,6 +38,34 @@ test("real HTTP portfolio route emits canonical two-vault positions and hides pr
     assert.deepEqual(body.safeguards.map(item => item.scope), ["global", "global"]);
     assert(!JSON.stringify(body).includes("private"));
   } finally { server.close(); }
+});
+
+test("production route uses real authenticated Control Plane and Observation Hub HTTP servers", async () => {
+  const { createPortfolioOrchestrator, createControlPlaneClient, createObservationHubClient } = await import("../subapps/kamino-monitor/portfolio-orchestrator.js");
+  const controlToken = "control-token-xxxxxxxxxxxxxxxxxxxx", observationToken = "observation-token-xxxxxxxxxxxxxxxx";
+  const seen = [];
+  const readBody = async request => { let raw = ""; for await (const chunk of request) raw += chunk; return JSON.parse(raw || "{}"); };
+  const control = createServer(async (request, response) => {
+    assert.equal(request.headers.authorization, `Bearer ${controlToken}`); seen.push(`control:${request.method}:${request.url}`);
+    if (request.method === "GET" && request.url === "/internal/v1/config/discovery-manifest") return response.end(JSON.stringify(manifest));
+    assert.deepEqual(await readBody(request), { targetIds: manifest.targets.map(item => item.id) }); response.end(JSON.stringify(config));
+  });
+  const observation = createServer(async (request, response) => {
+    assert.equal(request.headers.authorization, `Bearer ${observationToken}`); seen.push(`observation:${request.method}:${request.url}`);
+    assert.deepEqual(await readBody(request), { policyRevision: 7, targetIds: manifest.targets.map(item => item.id) });
+    response.end(JSON.stringify({ policyRevision: 7, receipts: [receipt(0), receipt(1)] }));
+  });
+  await Promise.all([new Promise(resolve => control.listen(0, "127.0.0.1", resolve)), new Promise(resolve => observation.listen(0, "127.0.0.1", resolve))]);
+  const orchestrator = createPortfolioOrchestrator({
+    controlPlaneClient: createControlPlaneClient({ url: `http://127.0.0.1:${control.address().port}`, token: controlToken }),
+    observationHubClient: createObservationHubClient({ url: `http://127.0.0.1:${observation.address().port}`, token: observationToken }),
+    adapters: { "kamino@1": { discover: async (_wallet, protocol) => ({ positions: protocol.targets.map(item => ({ targetId: item.id, protocol: "kamino", adapterId: "kamino", adapterVersion: 1, display: item.displayName, details: { vault: item.address, totalShares: "1" } })) }) } }
+  });
+  const route = await start(orchestrator); try {
+    const response = await fetch(`http://127.0.0.1:${route.address().port}/api/portfolio/${wallet}`); assert.equal(response.status, 200);
+    const body = await response.json(); assert.deepEqual(body.positions.map(item => item.targetId), manifest.targets.map(item => item.id));
+    assert.deepEqual(seen, ["control:GET:/internal/v1/config/discovery-manifest", "control:POST:/internal/v1/config/batch-read", "observation:POST:/internal/evaluation-receipts/batch-read"]);
+  } finally { await new Promise(resolve => route.close(resolve)); await new Promise(resolve => observation.close(resolve)); await new Promise(resolve => control.close(resolve)); }
 });
 
 test("display-name changes preserve canonical identity", async () => {
