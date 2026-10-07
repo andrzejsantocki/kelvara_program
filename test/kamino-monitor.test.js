@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { existsSync, readFileSync } from "node:fs";
-import { announcementRegistryFromEnv, createKaminoInspector, createKaminoMonitorServer, evaluateAdminRollovers, KAMINO } from "../subapps/kamino-monitor/server.js";
+import { announcementRegistryFromEnv, createKaminoInspector, createKaminoMonitorServer, evaluateAdminRollovers, KAMINO, RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES, rpc } from "../subapps/kamino-monitor/server.js";
 
 const WALLET = "883AnESJiUVzCnwowgaWCpXp4EGsK4JMVzUUUcjSSs62";
 const AUTHORITY = KAMINO.expectedUpgradeAuthority;
@@ -384,8 +384,10 @@ test("production RPC boundary rejects oversized, bodyless, malformed, and delaye
  const response=(body,{headers={},ok=true,status=200}={})=>({ok,status,headers:new Headers(headers),body});
  const stream=(chunks)=>({async *[Symbol.asyncIterator](){for(const chunk of chunks)yield Buffer.from(chunk)}});
  const run=async make=>{const fetchImpl=async(url,options={})=>{if(!String(url).includes("rpc"))throw new Error("unexpected_non_rpc");return make(options)};const result=await createKaminoInspector({fetchImpl,rpcUrl:"https://rpc"}).inspectControlPlane();return result.adminRights.reason};
- assert.equal(await run(()=>response(stream(["x".repeat(65537)]),{headers:{"content-length":"65537"}})),"rpc_response_too_large");
- assert.equal(await run(()=>response(stream(["x".repeat(65537)]))),"rpc_response_too_large");
+ assert.equal(await run(()=>response(stream(["x".repeat(RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES+1)]),{headers:{"content-length":String(RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES+1)}})),"rpc_response_too_large");
+ assert.equal(await run(()=>response(stream(["x".repeat(RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES+1)]))),"rpc_response_too_large");
+ const underDefault=async()=>({ok:true,headers:new Headers(),body:(async function*(){yield Buffer.alloc(64*1024+1,65)})()});
+ await assert.rejects(()=>rpc(underDefault,"https://rpc","getRecentPrioritizationFees",[]),/rpc_response_too_large/);
  assert.equal(await run(()=>response(null)),"rpc_body_unavailable");
  assert.equal(await run(()=>response(stream(["not-json"]))),"rpc_malformed_json");
  const delayed=await run(options=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>resolve(response(stream([JSON.stringify({jsonrpc:"2.0",id:1,result:{}})]))),500);options.signal?.addEventListener("abort",()=>{clearTimeout(timer);reject(new DOMException("aborted","AbortError"))},{once:true})}));

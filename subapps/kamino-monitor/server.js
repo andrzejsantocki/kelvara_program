@@ -64,20 +64,21 @@ function decimalParts(value){const [whole="0",fraction=""]=String(value).split("
 function multiplyDecimal(left,right){const a=decimalParts(left),b=decimalParts(right),scale=a.scale+b.scale,raw=(a.integer*b.integer).toString().padStart(scale+1,"0");if(!scale)return raw;const whole=raw.slice(0,-scale)||"0",fraction=raw.slice(-scale).replace(/0+$/,"");return fraction?`${whole}.${fraction}`:whole}
 function decimalAtMost(value,limit){const a=decimalParts(value),b=decimalParts(limit),scale=Math.max(a.scale,b.scale);return a.integer*10n**BigInt(scale-a.scale)<=b.integer*10n**BigInt(scale-b.scale)}
 const RPC_MAX_RESPONSE_BYTES=64*1024;
+export const RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES=96*1024;
 const RPC_TIMEOUT_MS=250;
-async function readRpcJson(response,signal){
+async function readRpcJson(response,signal,maxBytes=RPC_MAX_RESPONSE_BYTES){
  if(!response||!response.body)throw new Error("rpc_body_unavailable");
  const declared=Number(response.headers?.get?.("content-length"));
- if(Number.isFinite(declared)&&declared>RPC_MAX_RESPONSE_BYTES)throw new Error("rpc_response_too_large");
+ if(Number.isFinite(declared)&&declared>maxBytes)throw new Error("rpc_response_too_large");
  let total=0;const chunks=[];
- try{for await(const chunk of response.body){const bytes=typeof chunk==="string"?Buffer.from(chunk):Buffer.from(chunk);total+=bytes.byteLength;if(total>RPC_MAX_RESPONSE_BYTES)throw new Error("rpc_response_too_large");chunks.push(bytes);if(signal.aborted)throw new Error("rpc_timeout")}}
+ try{for await(const chunk of response.body){const bytes=typeof chunk==="string"?Buffer.from(chunk):Buffer.from(chunk);total+=bytes.byteLength;if(total>maxBytes)throw new Error("rpc_response_too_large");chunks.push(bytes);if(signal.aborted)throw new Error("rpc_timeout")}}
  catch(error){if(error.message==="rpc_response_too_large"||error.message==="rpc_timeout")throw error;if(signal.aborted)throw new Error("rpc_timeout");throw new Error("rpc_body_read_failed")}
  try{return JSON.parse(Buffer.concat(chunks).toString("utf8"))}catch{throw new Error("rpc_malformed_json")}
 }
-async function rpc(fetchImpl,url,method,params){
+export async function rpc(fetchImpl,url,method,params){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),RPC_TIMEOUT_MS);
  try{const response=await fetchImpl(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:1,method,params}),signal:controller.signal});
-  if(!response.ok)throw new Error(`rpc_http_${response.status}`);const body=await readRpcJson(response,controller.signal);
+  if(!response.ok)throw new Error(`rpc_http_${response.status}`);const maxBytes=method==="getAccountInfo"?RPC_GET_ACCOUNT_INFO_MAX_RESPONSE_BYTES:RPC_MAX_RESPONSE_BYTES;const body=await readRpcJson(response,controller.signal,maxBytes);
   if(!body||body.jsonrpc!=="2.0"||body.id!==1||(!Object.hasOwn(body,"result")&&!Object.hasOwn(body,"error")))throw new Error("rpc_invalid_envelope");
   if(body.error)throw new Error(`rpc_${body.error.code}:${String(body.error.message).slice(0,256)}`);return body.result
  }catch(error){if(controller.signal.aborted)throw new Error("rpc_timeout");throw error}finally{clearTimeout(timer)}
