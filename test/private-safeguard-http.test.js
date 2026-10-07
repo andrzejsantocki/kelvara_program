@@ -13,7 +13,7 @@ const portfolio = (wallet, authenticatedWallet, fail = false) => ({
 
 async function withApp({ getPortfolio = (wallet, options) => portfolio(wallet, options.authenticatedWallet) } = {}, run) {
   const walletAuth = { authorize(token) { if (token === tokenFor(WALLET)) return WALLET; if (token === tokenFor(OTHER)) return OTHER; throw new Error("authentication_required"); } };
-  const app = createKaminoMonitorServer({ inspector: { inspect: async () => ({}) }, walletAuth, portfolioOrchestrator: { getPortfolio } });
+  const app = createKaminoMonitorServer({ inspector: { inspect: async () => ({}) }, walletAuth, allowLegacyAuthForTests:true, portfolioOrchestrator: { getPortfolio } });
   app.listen(0, "127.0.0.1"); await once(app, "listening");
   try { await run(`http://127.0.0.1:${app.address().port}`); } finally { app.close(); await once(app, "close"); }
 }

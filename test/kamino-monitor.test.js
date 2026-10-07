@@ -129,7 +129,7 @@ test("production UI auto-retries a freshly deposited position",async()=>{
 test("portfolio route exposes global data publicly but private data only to matching wallet session",async()=>{
  const auth=createWalletAuthForTest(WALLET), calls=[];
  const portfolioOrchestrator={getPortfolio:async(wallet,options)=>{calls.push({wallet,options});return{wallet,positions:[{targetId:"target-1",safeguards:[{bindingId:"global"},...(options?.authenticatedWallet?[{bindingId:"private"}]:[])]}]}}};
- const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},portfolioOrchestrator,walletAuth:auth});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({position:null})},portfolioOrchestrator,walletAuth:auth,allowLegacyAuthForTests:true});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
  try {
   const publicResponse=await fetch(`${base}/api/portfolio/${WALLET}`);assert.equal(publicResponse.status,200);assert.deepEqual((await publicResponse.json()).positions[0].safeguards.map(item=>item.bindingId),["global"]);
   const token=auth.issue(WALLET).token;
@@ -156,7 +156,7 @@ test("serves production health, config and inspection API",async()=>{
  const base=`http://127.0.0.1:${server.address().port}`;
  try{
   assert.equal((await fetch(`${base}/healthz`)).status,200);
-  const config=await(await fetch(`${base}/api/config`)).json();assert.equal(config.network,"mainnet");assert.equal(config.vault,KAMINO.vault);
+  const config=await(await fetch(`${base}/api/config`)).json();assert.equal(config.network,"mainnet-beta");assert.equal(config.vault,KAMINO.vault);
   const inspected=await(await fetch(`${base}/api/inspect/${WALLET}`)).json();assert.equal(inspected.position.asset,"USDG");
   const page=await fetch(base);assert.match(page.headers.get("content-security-policy"),/default-src 'self'/);assert.match(page.headers.get("content-security-policy"),/connect-src 'self' https:\/\/api\.kelvara\.xyz/);
   for(const asset of ["authority-flow-background.svg","steakhouse-usdg.svg","kamino.svg","wallets/phantom.svg","wallets/solflare.svg","wallets/backpack.svg"]){const response=await fetch(`${base}/assets/${asset}`);assert.equal(response.status,200);assert.match(response.headers.get("content-type"),/image\/svg\+xml/)}
@@ -186,6 +186,16 @@ test("operations sink failures never break wallet inspection",async()=>{
 test("public frontend targets the dedicated API origin",()=>{
  const root=new URL("../",import.meta.url),app=readFileSync(new URL("subapps/kamino-monitor/web/app.js",root),"utf8");
  assert.match(app,/https:\/\/api\.kelvara\.xyz/);assert.match(app,/function apiUrl/);assert.match(app,/fetch\(apiUrl\(path\)/);
+});
+
+test("auth HTTP contract rejects missing or conflicting network and legacy auth requires explicit test gate",async()=>{
+ const legacy={issue:()=>({message:"legacy"}),verify:()=>({token:"legacy"}),authorize:()=>WALLET};
+ assert.throws(()=>createKaminoMonitorServer({walletAuth:legacy}),/legacy_auth_requires_explicit_test_gate/);
+ const server=createKaminoMonitorServer({inspector:{inspect:async()=>({})},networkAuth:{authFor:()=>({issue:async()=>({}),verify:async()=>({})})}});server.listen(0,"127.0.0.1");await once(server,"listening");const base=`http://127.0.0.1:${server.address().port}`;
+ try {
+  const missing=await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({wallet:WALLET})});assert.equal(missing.status,400);
+  const conflict=await fetch(`${base}/api/auth/challenge`,{method:"POST",headers:{"content-type":"application/json","x-kelvara-network":"devnet"},body:JSON.stringify({wallet:WALLET,network:"mainnet-beta"})});assert.equal(conflict.status,400);
+ } finally {server.close();await once(server,"close")}
 });
 
 test("backend enforces exact production CORS and preflight",async()=>{
