@@ -31,9 +31,24 @@ export function createGenesisVerifier({network, rpcUrl, fetchImpl=fetch, timeout
       try {
         const request = fetchImpl(rpcUrl, { method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({jsonrpc:"2.0", id:1, method:"getGenesisHash", params:[]}), signal: controller.signal });
-        const response = await Promise.race([request, new Promise((_, reject) => setTimeout(() => reject(new Error("genesis_rpc_timeout")), Math.max(1, timeoutMs)))]);
-        if (!response || !response.ok) throw new Error("genesis_rpc_http_error");
-        const body = await response.json();
+        const readResponse = async () => {
+          const response = await request;
+          if (!response || !response.ok) throw new Error("genesis_rpc_http_error");
+          let raw = "";
+          if (response.body && Symbol.asyncIterator in Object(response.body)) {
+            for await (const chunk of response.body) {
+              raw += Buffer.from(chunk).toString("utf8");
+              if (raw.length > 64 * 1024) throw new Error("genesis_rpc_body_too_large");
+            }
+          } else if (typeof response.text === "function") {
+            raw = await response.text();
+            if (raw.length > 64 * 1024) throw new Error("genesis_rpc_body_too_large");
+          } else if (typeof response.json === "function") {
+            raw = JSON.stringify(await response.json());
+          } else throw new Error("genesis_rpc_malformed");
+          try { return JSON.parse(raw); } catch { throw new Error("genesis_rpc_malformed"); }
+        };
+        const body = await Promise.race([readResponse(), new Promise((_, reject) => setTimeout(() => reject(new Error("genesis_rpc_timeout")), Math.max(1, timeoutMs)))]);
         if (!body || body.jsonrpc !== "2.0" || body.id !== 1 || typeof body.result !== "string" || body.error) throw new Error("genesis_rpc_malformed");
         const expected = NETWORK_GENESIS[network];
         if (body.result !== expected) throw new Error("genesis_hash_mismatch");
@@ -62,13 +77,13 @@ export function createNetworkBoundWalletAuth({genesisVerifier, ttlMs=5*60_000, n
     async verify(wallet, message, signature, network) {
       new PublicKey(wallet); boundedString(message, "challenge_message"); validNetwork(network);
       const nonce = /\nNonce: ([^\n]+)/.exec(message)?.[1], entry = nonce && challenges.get(nonce);
-      if (!entry || entry.wallet !== wallet || entry.network !== network || entry.message !== message || entry.expiresAt < now()) throw new Error("invalid_or_expired_challenge");
+      if (!entry || entry.wallet !== wallet || entry.network !== network || entry.message !== message || entry.expiresAt <= now()) throw new Error("invalid_or_expired_challenge");
+      challenges.delete(nonce);
       const verified = await genesisVerifier.verify();
       if (verified.genesisHash !== entry.genesisHash) throw new Error("genesis_binding_stale");
       let ok = false;
       try { ok = nacl.sign.detached.verify(Buffer.from(message), Buffer.from(signature, "base64"), new PublicKey(wallet).toBytes()); } catch {}
       if (!ok) throw new Error("invalid_wallet_signature");
-      challenges.delete(nonce);
       const token = randomBytes(32).toString("base64url"), expiresAt = now() + ttlMs;
       sessions.set(hashToken(token), {wallet, network, genesisHash: verified.genesisHash, expiresAt});
       return {token, expiresAt, network, genesisHash: verified.genesisHash};

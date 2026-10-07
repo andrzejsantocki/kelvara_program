@@ -45,3 +45,31 @@ test("unsupported network and missing binding fail closed", async () => {
  const auth=createNetworkBoundWalletAuth({genesisVerifier:null});
  await assert.rejects(auth.authorize("missing",{network:"mainnet-beta",genesisHash:MAINNET}),/authentication/);
 });
+
+test("RPC timeout covers a delayed response body and bounds malformed oversized bodies", async () => {
+ const delayed = async () => ({ok:true,status:200,body:(async function*(){await new Promise(r=>setTimeout(r,40));yield Buffer.from('{"jsonrpc":"2.0","id":1,"result":"'+MAINNET+'"}');})()});
+ await assert.rejects(createGenesisVerifier({network:"mainnet-beta",rpcUrl:"http://rpc.test",fetchImpl:delayed,timeoutMs:10}).verify(),/timeout/i);
+ const oversized = async () => ({ok:true,status:200,body:(async function*(){yield Buffer.alloc(70_000, 65);})()});
+ await assert.rejects(createGenesisVerifier({network:"mainnet-beta",rpcUrl:"http://rpc.test",fetchImpl:oversized}).verify(),/body_too_large|malformed/i);
+});
+
+test("challenge reservation is atomic and invalid signatures cannot replay", async () => {
+ let verifies=0;
+ const verifier={network:"mainnet-beta",verify:async()=>{verifies++;await new Promise(r=>setTimeout(r,5));return {network:"mainnet-beta",genesisHash:MAINNET}}};
+ const auth=createNetworkBoundWalletAuth({genesisVerifier:verifier,now:()=>1000});
+ const challenge=await auth.issue(WALLET,"mainnet-beta");
+ const signature=Buffer.from(nacl.sign.detached(Buffer.from(challenge.message),keypair.secretKey)).toString("base64");
+ const results=await Promise.allSettled([auth.verify(WALLET,challenge.message,signature,"mainnet-beta"),auth.verify(WALLET,challenge.message,signature,"mainnet-beta")]);
+ assert.equal(results.filter(r=>r.status==="fulfilled").length,1);assert.equal(results.filter(r=>r.status==="rejected").length,1);
+ const bad=await auth.issue(WALLET,"mainnet-beta");
+ await assert.rejects(auth.verify(WALLET,bad.message,"bad","mainnet-beta"),/invalid_wallet_signature/);
+ await assert.rejects(auth.verify(WALLET,bad.message,signature,"mainnet-beta"),/invalid_or_expired_challenge/);
+ assert.ok(verifies>=3);
+});
+
+test("expiry is inclusive at the exact timestamp", async () => {
+ let now=1000;const verifier={network:"mainnet-beta",verify:async()=>({network:"mainnet-beta",genesisHash:MAINNET})};
+ const auth=createNetworkBoundWalletAuth({genesisVerifier:verifier,ttlMs:10,now:()=>now});
+ const challenge=await auth.issue(WALLET,"mainnet-beta");now=1010;
+ await assert.rejects(auth.verify(WALLET,challenge.message,"bad","mainnet-beta"),/invalid_or_expired_challenge/);
+});
