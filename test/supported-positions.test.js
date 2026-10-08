@@ -80,3 +80,27 @@ test("malformed or unavailable Control Plane catalog is explicit 502", async () 
     assert.match((await response.json()).error, /^control_plane_/);
   });
 });
+
+test("serialized supported positions route maps Control Plane timeout to bounded 502", async () => {
+  const client = createControlPlaneClient({ url: "http://control-plane.example", token: "x".repeat(32), fetchImpl: async () => {
+    const error = new Error("secret timeout details");
+    error.name = "AbortError";
+    throw error;
+  } });
+  await withServer({ readSupportedPositions: network => client.readSupportedPositions(network) }, async base => {
+    const response = await fetch(`${base}/api/supported-positions?network=mainnet-beta`);
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "control_plane_unavailable" });
+  });
+});
+
+test("serialized supported positions route maps generic Control Plane rejection to bounded 502", async () => {
+  const client = createControlPlaneClient({ url: "http://control-plane.example", token: "x".repeat(32), fetchImpl: async () => {
+    throw new Error("secret network details");
+  } });
+  await withServer({ readSupportedPositions: network => client.readSupportedPositions(network) }, async base => {
+    const response = await fetch(`${base}/api/supported-positions?network=mainnet-beta`);
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "control_plane_unavailable" });
+  });
+});
