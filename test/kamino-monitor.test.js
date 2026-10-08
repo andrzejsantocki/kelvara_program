@@ -37,6 +37,17 @@ test("control plane verifies every effective admin against approved baselines",a
  assert.equal(control.adminRights.slot,12);
 });
 
+test("production Mainnet inspect slices ProgramData RPC data to the decoded header",async()=>{
+ const calls=[];
+ const fetchImpl=async(url,options={})=>{if(options.body)calls.push(JSON.parse(options.body));return fixtureFetch()(url,options)};
+ const inspected=await createKaminoInspector({fetchImpl,rpcUrl:"https://rpc"}).inspect(WALLET);
+ const programDataCall=calls.find(call=>call.method==="getAccountInfo"&&call.params[0]===KAMINO.programData);
+ assert.deepEqual(programDataCall.params[1],{encoding:"base64",commitment:"confirmed",dataSlice:{offset:0,length:45}});
+ assert.equal(inspected.authority.deploymentSlot,432874668);
+ assert.equal(inspected.authority.current,AUTHORITY);
+});
+
+
 test("invalid vault-state evidence is unknown, never healthy",async()=>{
  const fetchImpl=fixtureFetch();const wrapped=async(url,options={})=>{const response=await fetchImpl(url,options),body=options.body&&JSON.parse(options.body);if(body?.params?.[0]!==KAMINO.vault)return response;const payload=await response.json();payload.result.value.owner="11111111111111111111111111111111";return{...response,json:async()=>payload}};
  const control=await createKaminoInspector({fetchImpl:wrapped,rpcUrl:"https://rpc",expectedVaultAdmin:VAULT_ADMIN,expectedPendingAdmin:VAULT_ADMIN,expectedAllocationAdmin:ALLOCATION_ADMIN}).inspectControlPlane();

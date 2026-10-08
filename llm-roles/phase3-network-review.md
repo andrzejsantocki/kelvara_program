@@ -17,3 +17,7 @@ Owned scope: `subapps/kamino-monitor/server.js`, `subapps/kamino-monitor/network
 ### Rejected milestone correction — 2026-10-08
 
 Correction scope: strict RED→GREEN production HTTP regressions for authenticated-wallet binding on Devnet portfolio/inspect, Mainnet-only evacuation status, complete protected-route Devnet rejection, auth/genesis matrix. No UI, packaging, deployment, signing, broadcast, or devnet-demo edits.
+
+### Mainnet ProgramData RPC response bound — 2026-10-08
+
+Owned task scope: `subapps/kamino-monitor/server.js`, `test/kamino-monitor.test.js`, package staging metadata only. Add `dataSlice: { offset: 0, length: 45 }` exclusively to ProgramData `getAccountInfo` calls; preserve global RPC response limits. Strict RED→GREEN focused production-path regression, full suite, source commit/push, then HAOS package staging only. No deploy, restart, upload, Supervisor mutation, or Samba writes.
