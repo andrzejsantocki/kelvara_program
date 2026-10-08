@@ -9,3 +9,7 @@ Mandatory: canonical network/genesis binding, real HTTP tests, fail-closed error
 ### Kamino JSON boundary hardening — 2026-10-07
 
 Reserved scope: `subapps/kamino-monitor/server.js`, `subapps/kamino-monitor/web/evacuation-client.js`, focused boundary tests. No UI repo edits/deploy.
+
+### Program Backend Devnet read-only vertical slice — 2026-10-08
+
+Owned scope: `subapps/kamino-monitor/server.js`, `subapps/kamino-monitor/network-session.js`, `subapps/kamino-monitor/portfolio-orchestrator.js`, focused production HTTP tests. Explicit Devnet genesis-bound auth, canonical empty read-only portfolio/inspect, fail-closed Devnet action routes. No UI, deployment, signing, broadcast, or devnet-demo edits.
