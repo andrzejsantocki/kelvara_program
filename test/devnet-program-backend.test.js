@@ -9,6 +9,8 @@ import { createKaminoMonitorServer } from "../subapps/kamino-monitor/server.js";
 
 const keypair = Keypair.generate();
 const wallet = keypair.publicKey.toString();
+const otherKeypair = Keypair.generate();
+const otherWallet = otherKeypair.publicKey.toString();
 
 async function fakeRpcServer({ response = NETWORK_GENESIS.devnet, delay = 0, status = 200 } = {}) {
   const calls = [];
@@ -26,14 +28,25 @@ async function fakeRpcServer({ response = NETWORK_GENESIS.devnet, delay = 0, sta
   return { server, calls, url: `http://127.0.0.1:${server.address().port}` };
 }
 
-async function setup() {
+async function setup({withOperations = false} = {}) {
   const rpc = await fakeRpcServer();
+  const calls = { inspect: 0, store: 0, operations: 0, prepare: 0, finalize: 0 };
   const auth = createNetworkBoundWalletAuth({ genesisVerifier: createGenesisVerifier({ network: "devnet", rpcUrl: rpc.url, timeoutMs: 100 }) });
+  const protectionStore = {
+    async get() { calls.store++; return null; },
+    async save() { calls.store++; },
+    async remove() { calls.store++; },
+  };
   const server = createKaminoMonitorServer({
     networkAuth: { authFor(network) { if (network !== "devnet") throw new Error("network_verification_unavailable"); return auth; } },
-    inspector: { inspect: async () => { throw new Error("mainnet_inspector_called"); }, inspectControlPlane: async () => ({}) },
+    inspector: { inspect: async () => { calls.inspect++; throw new Error("mainnet_inspector_called"); }, inspectControlPlane: async () => ({}) },
+    protectionStore,
+    operationsSink: withOperations ? { async record() { calls.operations++; } } : null,
+    prepareEvacuationImpl: async () => { calls.prepare++; throw new Error("prepare_called"); },
+    finalizeManualEvacuation: async () => { calls.finalize++; throw new Error("finalize_called"); },
     pollMs: 3600000,
   });
+  server.calls = calls;
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   return { rpc, auth, server, base: `http://127.0.0.1:${server.address().port}` };
@@ -91,6 +104,91 @@ test("Devnet action rejects before downstream side effects", async () => {
     assert.equal(response.status, 400);
     assert.deepEqual(await json(response), { error: "internal_error" });
     assert.equal(ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length, 0);
+  } finally { await closeAll(ctx); }
+});
+
+test("Devnet owner binding rejects wallet mismatch before private or downstream calls", async () => {
+  const ctx = await setup({ withOperations: true });
+  try {
+    const session = await authenticate(ctx.base);
+    const headers = { authorization: `Bearer ${session.token}`, "x-kelvara-network": "devnet", "x-kelvara-genesis": NETWORK_GENESIS.devnet };
+    for (const path of [`/api/portfolio/${otherWallet}`, `/api/inspect/${otherWallet}`]) {
+      const response = await fetch(`${ctx.base}${path}`, { headers });
+      assert.equal(response.status, 401);
+      assert.deepEqual(await json(response), { error: "internal_error" });
+    }
+    assert.equal(ctx.server.calls.inspect, 0);
+    assert.equal(ctx.server.calls.operations, 0);
+    assert.equal(ctx.server.calls.store, 0);
+    assert.equal(ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length, 0);
+  } finally { await closeAll(ctx); }
+});
+
+test("Devnet evacuation status rejects before Mainnet RPC", async () => {
+  const ctx = await setup();
+  try {
+    const session = await authenticate(ctx.base);
+    const response = await fetch(`${ctx.base}/api/evacuation/status/${"1".repeat(64)}`, { headers: { authorization: `Bearer ${session.token}`, "x-kelvara-network": "devnet", "x-kelvara-genesis": NETWORK_GENESIS.devnet } });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await json(response), { error: "internal_error" });
+    assert.equal(ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length, 0);
+  } finally { await closeAll(ctx); }
+});
+
+test("every protected action and status route rejects Devnet before side effects", async () => {
+  const ctx = await setup({ withOperations: true });
+  try {
+    const session = await authenticate(ctx.base);
+    const headers = { authorization: `Bearer ${session.token}`, "content-type": "application/json", "x-kelvara-network": "devnet", "x-kelvara-genesis": NETWORK_GENESIS.devnet };
+    const routes = [
+      ["GET", "/api/protection/status"],
+      ["POST", "/api/protection/nonce-setup/prepare"], ["POST", "/api/protection/nonce-setup/submit"],
+      ["POST", "/api/protection/prepare"], ["POST", "/api/protection/arm"], ["POST", "/api/protection/fast-close"],
+      ["POST", "/api/protection/revoke/prepare"], ["POST", "/api/protection/revoke"], ["POST", "/api/protection/revoke/finalize"],
+      ["POST", "/api/protection/manual-evacuation/finalize"], ["POST", "/api/evacuation/prepare"], ["POST", "/api/evacuation/submit"],
+    ];
+    for (const [method, path] of routes) {
+      const response = await fetch(`${ctx.base}${path}`, { method, headers, body: method === "POST" ? JSON.stringify({ network: "devnet", wallet, nonceAccounts: [], variants: [], signedTransaction: "x", signature: "x" }) : undefined });
+      assert.equal(response.status, 400, `${method} ${path}`);
+      assert.deepEqual(await json(response), { error: "internal_error" }, `${method} ${path}`);
+    }
+    assert.deepEqual(ctx.server.calls, { inspect: 0, store: 0, operations: 0, prepare: 0, finalize: 0 });
+    assert.equal(ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length, 0);
+  } finally { await closeAll(ctx); }
+});
+
+test("Devnet portfolio and inspect auth matrix fails closed before forbidden calls", async () => {
+  const ctx = await setup();
+  try {
+    const session = await authenticate(ctx.base);
+    const baseline = { inspect: ctx.server.calls.inspect, rpc: ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length };
+    const cases = [
+      ["missing token", {}],
+      ["malformed token", { authorization: "Bearer definitely-not-a-session" }],
+      ["wrong genesis", { authorization: `Bearer ${session.token}`, "x-kelvara-genesis": NETWORK_GENESIS["mainnet-beta"] }],
+      ["wrong network", { authorization: `Bearer ${session.token}`, "x-kelvara-network": "mainnet-beta" }, true],
+    ];
+    for (const [label, extra, mainnetBehavior] of cases) {
+      const headers = { "x-kelvara-network": "devnet", "x-kelvara-genesis": NETWORK_GENESIS.devnet, ...extra };
+      for (const route of [`/api/portfolio/${wallet}`, `/api/inspect/${wallet}`]) {
+        const before = { inspect: ctx.server.calls.inspect, rpc: ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length };
+        const response = await fetch(`${ctx.base}${route}`, { headers });
+        assert.notEqual(response.status, 200, `${label} ${route}`);
+        await json(response);
+        if (!mainnetBehavior) {
+          assert.equal(ctx.server.calls.inspect, before.inspect, `${label} ${route} inspector side effect`);
+          assert.equal(ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length, before.rpc, `${label} ${route} RPC side effect`);
+        }
+      }
+    }
+    for (const route of ["/api/portfolio/not-a-solana-address", "/api/inspect/not-a-solana-address"]) {
+      const before = { inspect: ctx.server.calls.inspect, rpc: ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length };
+      const response = await fetch(`${ctx.base}${route}`, { headers: { authorization: `Bearer ${session.token}`, "x-kelvara-network": "devnet", "x-kelvara-genesis": NETWORK_GENESIS.devnet } });
+      assert.equal(response.status, 400, route);
+      await json(response);
+      assert.equal(ctx.server.calls.inspect, before.inspect, `${route} inspector side effect`);
+      assert.equal(ctx.rpc.calls.filter(call => call.method !== "getGenesisHash").length, before.rpc, `${route} RPC side effect`);
+    }
   } finally { await closeAll(ctx); }
 });
 

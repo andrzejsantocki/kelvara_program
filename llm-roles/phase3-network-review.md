@@ -13,3 +13,7 @@ Reserved scope: `subapps/kamino-monitor/server.js`, `subapps/kamino-monitor/web/
 ### Program Backend Devnet read-only vertical slice — 2026-10-08
 
 Owned scope: `subapps/kamino-monitor/server.js`, `subapps/kamino-monitor/network-session.js`, `subapps/kamino-monitor/portfolio-orchestrator.js`, focused production HTTP tests. Explicit Devnet genesis-bound auth, canonical empty read-only portfolio/inspect, fail-closed Devnet action routes. No UI, deployment, signing, broadcast, or devnet-demo edits.
+
+### Rejected milestone correction — 2026-10-08
+
+Correction scope: strict RED→GREEN production HTTP regressions for authenticated-wallet binding on Devnet portfolio/inspect, Mainnet-only evacuation status, complete protected-route Devnet rejection, auth/genesis matrix. No UI, packaging, deployment, signing, broadcast, or devnet-demo edits.
