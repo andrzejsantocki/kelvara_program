@@ -16,7 +16,7 @@ function normalizeDiscovered(result, protocol) {
   const byAddress = new Map();
   const byId = new Map();
   for (const target of targets) {
-    if (!target || typeof target !== "object" || !validText(target.id) || !validText(target.address) || target.address !== target.address.trim() || !validText(target.displayName) || target.displayName !== target.displayName.trim() || target.network !== "mainnet") throw new Error("kamino_targets_malformed");
+    if (!target || typeof target !== "object" || !validText(target.id) || !validText(target.address) || target.address !== target.address.trim() || !validText(target.displayName) || target.displayName !== target.displayName.trim() || !new Set(["mainnet", "mainnet-beta"]).has(target.network)) throw new Error("kamino_targets_malformed");
     if (byAddress.has(target.address) || byId.has(target.id)) throw new Error("kamino_targets_malformed");
     byAddress.set(target.address, target); byId.set(target.id, target);
   }
