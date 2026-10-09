@@ -1,5 +1,9 @@
 # LLM-2 coordination
 
+## Governance cross-service E2E harness — 2026-10-09
+
+Owned scope: `test/governance-cross-service-e2e.test.js` only. Read-only import of Observation Hub from `/home/andy/hermes-run/kelvara-governance-mvp-app`; no app edits/deployments. Strict RED → GREEN → REFACTOR. Test starts real Hub HTTP + SQLite, real Program HTTP with `createGovernanceClient`, verifies auth, canonical projection, cursors, restart.
+
 ## Governance MVP Program Backend — 2026-10-09
 
 Owned scope: `subapps/kamino-monitor/governance.js`, `subapps/kamino-monitor/runtime-config.js`, `subapps/kamino-monitor/server.js`, `test/governance-api.test.js`, `test/kamino-runtime-config.test.js`. Align canonical Observation Hub governance contract, stable cursor signing, protected runtime config, real HTTP Hub wiring. No HAOS/deploy. Strict RED → GREEN → REFACTOR.
