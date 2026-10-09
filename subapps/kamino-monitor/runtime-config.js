@@ -32,6 +32,10 @@ export function resolveKaminoRuntimeConfig(env = process.env, moduleDir = ".") {
   const receiptsUrl = boundedUrl(env.KELVARA_OBSERVATION_HUB_URL, "KELVARA_OBSERVATION_HUB_URL");
   const governanceUrl = boundedUrl(env.KELVARA_GOVERNANCE_HUB_URL || receiptsUrl, "KELVARA_GOVERNANCE_HUB_URL");
   const configToken = internalToken(env.KELVARA_CONTROL_PLANE_TOKEN, "KELVARA_CONTROL_PLANE_TOKEN");
+  const walletLinkToken = internalToken(env.KELVARA_WALLET_LINK_TOKEN, "KELVARA_WALLET_LINK_TOKEN");
+  const walletLinkUrl = boundedUrl(env.KELVARA_WALLET_LINK_URL, "KELVARA_WALLET_LINK_URL");
+  if (walletLinkToken && configToken && walletLinkToken === configToken) throw new TypeError("wallet link token must be distinct");
+  if (walletLinkUrl && !walletLinkToken) throw new TypeError("KELVARA_WALLET_LINK_TOKEN required");
   const receiptsToken = internalToken(env.KELVARA_OBSERVATION_HUB_TOKEN, "KELVARA_OBSERVATION_HUB_TOKEN");
   const governanceToken = internalToken(env.KELVARA_GOVERNANCE_HUB_TOKEN || (env.KELVARA_GOVERNANCE_HUB_URL ? null : receiptsToken), "KELVARA_GOVERNANCE_HUB_TOKEN");
   const cursorSecret = internalToken(env.GOVERNANCE_CURSOR_SECRET, "GOVERNANCE_CURSOR_SECRET");
@@ -52,6 +56,8 @@ export function resolveKaminoRuntimeConfig(env = process.env, moduleDir = ".") {
     controlPlaneUrl: configUrl,
     observationHubUrl: receiptsUrl,
     controlPlaneToken: configToken,
+    walletLinkUrl,
+    walletLinkToken,
     observationHubToken: receiptsToken,
     governanceHubUrl: governanceUrl,
     governanceHubToken: governanceToken,
