@@ -4,7 +4,7 @@ import { Keypair } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
-import { createWalletAuth } from "../subapps/kamino-monitor/protection.js";
+import { createWalletAuth, createControlPlaneWalletLinkClient, WALLET_LINK_ENDPOINT } from "../subapps/kamino-monitor/protection.js";
 import { createKaminoMonitorServer } from "../subapps/kamino-monitor/server.js";
 
 const NETWORK = "mainnet-beta";
@@ -16,6 +16,21 @@ async function verify(base, keypair, network = NETWORK, signatureOverride) {
   return fetch(`${base}/api/auth/verify`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: keypair.publicKey.toString(), network, message: challenge.message, signature }) });
 }
 function fakeInspector() { return { inspect: async () => ({}) }; }
+
+const LINK_EVENT = { schemaVersion: "verified-wallet-link/v1", chain: "solana", network: NETWORK, walletAddress: Keypair.generate().publicKey.toString(), verification: { method: "solana-wallet-signature", verifiedAt: "2026-10-09T00:00:00.000Z", challengeId: "a".repeat(64) }, idempotencyKey: "b".repeat(64) };
+
+test("production wallet-link client sends scoped closed HTTP request and validates bounded ack", async () => {
+  const calls = [];
+  const client = createControlPlaneWalletLinkClient({ url: "http://127.0.0.1:8123/base", token: "link-token", fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, json: async () => ({ accepted: true, idempotent: false }) };
+  } });
+  assert.deepEqual(await client(LINK_EVENT), { accepted: true, idempotent: false });
+  assert.equal(calls[0].url, `http://127.0.0.1:8123${WALLET_LINK_ENDPOINT}`);
+  assert.equal(calls[0].options.method, "POST");
+  assert.equal(calls[0].options.headers.authorization, "Bearer link-token");
+  assert.deepEqual(JSON.parse(calls[0].options.body), LINK_EVENT);
+});
 
 test("verified wallet auth delivers closed event before issuing session", async () => {
   const keypair = Keypair.generate(), events = [], auth = createWalletAuth({ linkWallet: async event => { events.push(event); return { accepted: true }; } });
@@ -34,6 +49,14 @@ test("invalid signature makes zero linkage calls", async () => {
   const keypair = Keypair.generate(), calls = []; const auth = createWalletAuth({ linkWallet: async event => calls.push(event) });
   const server = createKaminoMonitorServer({ inspector: fakeInspector(), walletAuth: auth }); const base = await listen(server);
   try { const response = await verify(base, keypair, NETWORK, Buffer.alloc(64, 7).toString("base64")); assert.equal(response.status, 401); assert.equal(calls.length, 0); } finally { await close(server); }
+});
+
+test("failed linkage consumes the one-time challenge", async () => {
+  const keypair = Keypair.generate(), auth = createWalletAuth({ linkWallet: async () => { throw new Error("down"); } });
+  const challenge = auth.issue(keypair.publicKey.toString());
+  const signature = Buffer.from(nacl.sign.detached(Buffer.from(challenge.message), keypair.secretKey)).toString("base64");
+  await assert.rejects(() => auth.verify(keypair.publicKey.toString(), challenge.message, signature), /wallet_link_unavailable/);
+  assert.throws(() => auth.verify(keypair.publicKey.toString(), challenge.message, signature), /invalid_or_expired_challenge/);
 });
 
 test("linkage failure issues no session", async () => {
