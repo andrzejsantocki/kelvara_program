@@ -535,6 +535,19 @@ Live verification:
 - Full repository suite: 272/272 passing.
 - `npm run check`, `git diff --check`, and launcher shell syntax: pass.
 
+## Program Backend Governance MVP — 2026-10-09
+
+Ownership/scope:
+
+- `subapps/kamino-monitor/governance.js`
+- additive governance route wiring in `subapps/kamino-monitor/server.js`
+- dedicated `test/governance-api.test.js`
+- no changes to Wallet Inspector, Alert Console, Observation Hub storage, or deployment files
+
+Implement authenticated `GET /api/governance` through the existing wallet challenge session. Scope exactly to the authenticated session wallet. Query Observation Hub via scoped authenticated `POST /internal/v1/governance/actions/query`; preserve bounded freshness/partial/stale/unknown responses and exclude secrets/raw bytes. Strict RED → GREEN → REFACTOR.
+
+Status: completed. Focused governance API tests 5/5; full repository 336/336; `npm run check` and `git diff --check` pass. Session scope is one authenticated wallet; multi-wallet enrollment remains a later Control Center expansion. Cursor is opaque pass-through in this MVP because no existing cursor-signing facility is present.
+
 ## Monitoring control-plane expansion — 2026-09-29
 
 Ownership/scope:
