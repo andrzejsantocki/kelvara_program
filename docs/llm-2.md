@@ -1,5 +1,10 @@
 # LLM-2 coordination
 
+## Governance MVP Program Backend — 2026-10-09
+
+Owned scope: `subapps/kamino-monitor/governance.js`, `subapps/kamino-monitor/runtime-config.js`, `subapps/kamino-monitor/server.js`, `test/governance-api.test.js`, `test/kamino-runtime-config.test.js`. Align canonical Observation Hub governance contract, stable cursor signing, protected runtime config, real HTTP Hub wiring. No HAOS/deploy. Strict RED → GREEN → REFACTOR.
+
+
 ## Live evidence + bounded retention — 2026-09-28
 
 Owned scope for this implementation:

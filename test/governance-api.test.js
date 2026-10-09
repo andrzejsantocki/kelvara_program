@@ -6,11 +6,11 @@ import { createKaminoMonitorServer } from "../subapps/kamino-monitor/server.js";
 const WALLET = "11111111111111111111111111111111";
 const OTHER = "22222222222222222222222222222222";
 const tokenFor = wallet => `session-${wallet}`;
-const evidence = { network: "mainnet-beta", schemaVersion: "observation-hub-governance/v1", freshness: { state: "fresh", observedAt: "2026-10-09T10:00:00.000Z", finalizedSlot: 123 }, wallets: [{ address: WALLET, vaults: [{ identity: { provider: "squads", generation: "v4", multisigAddress: "multi", vaultIndex: 0, vaultAddress: "vault" }, membership: { role: "member", permissions: ["vote"], threshold: 2, memberCount: 3 }, requiresAttention: [], currentActions: [], recentChanges: [], nextHistoryCursor: null }] }], warnings: [] };
+const evidence = { network: "mainnet-beta", schemaVersion: "observation-hub-governance/v1", freshness: { state: "fresh", observedAt: "2026-10-09T10:00:00.000Z", finalizedSlot: 123 }, wallets: [{ address: WALLET, vaults: [{ identity: { provider: "squads", generation: "v4", multisigAddress: WALLET, vaultIndex: 0, vaultAddress: WALLET }, membership: { role: "member", permissions: ["vote"], threshold: 2, memberCount: 3 }, requiresAttention: [], currentActions: [], recentChanges: [], nextHistoryCursor: null }] }], warnings: [] };
 
 async function withApp({ governanceQuery = async () => evidence } = {}, run) {
   const walletAuth = { authorize(token) { if (token === tokenFor(WALLET)) return WALLET; if (token === tokenFor(OTHER)) return OTHER; throw new Error("authentication_required"); } };
-  const app = createKaminoMonitorServer({ inspector: { inspect: async () => ({}) }, walletAuth, governanceQuery });
+  const app = createKaminoMonitorServer({ inspector: { inspect: async () => ({}) }, walletAuth, governanceQuery, governanceCursorSecret: "s".repeat(32) });
   app.listen(0, "127.0.0.1"); await once(app, "listening");
   try { await run(`http://127.0.0.1:${app.address().port}`); } finally { app.close(); await once(app, "close"); }
 }
@@ -19,11 +19,13 @@ async function get(base, query = "network=mainnet-beta", token = tokenFor(WALLET
   return fetch(`${base}/api/governance?${query}`, { headers: { authorization: `Bearer ${token}` } });
 }
 
-test("authenticated governance query uses session wallet and customer schema", async () => withApp({}, async base => {
+test("authenticated governance query preserves canonical governance schema exactly", async () => withApp({}, async base => {
   const response = await get(base);
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.schemaVersion, "customer-governance/v1");
+  assert.equal(body.schemaVersion, "observation-hub-governance/v1");
+  assert.equal(body.network, "mainnet-beta");
+  assert.deepEqual(Object.keys(body.wallets[0].vaults[0]), ["identity", "membership", "requiresAttention", "currentActions", "recentChanges", "nextHistoryCursor"]);
   assert.deepEqual(body.wallets.map(wallet => wallet.address), [WALLET]);
   assert.equal(JSON.stringify(body).includes("rawBytes"), false);
 }));
@@ -56,11 +58,9 @@ test("history limit defaults to ten and rejects out of bounds", async () => {
 
 test("upstream failure returns bounded unavailable state, not false empty", async () => withApp({ governanceQuery: async () => { throw new Error("observation_hub_timeout"); } }, async base => {
   const response = await get(base);
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 502);
   const body = await response.json();
-  assert.equal(body.freshness.state, "unavailable");
-  assert.equal(body.wallets, undefined);
-  assert.ok(body.warnings.length > 0);
+  assert.equal(body.error, "governance_unavailable");
 }));
 
 test("rejects wallet query parameters deterministically", async () => withApp({}, async base => {
@@ -78,8 +78,8 @@ test("malformed upstream shapes become unavailable without reflecting secrets", 
     { schemaVersion: "observation-hub-governance/v1", freshness: { state: "invalid" }, wallets: [] },
   ];
   for (const value of bad) await withApp({ governanceQuery: async () => value }, async base => {
-    const response = await get(base); assert.equal(response.status, 200);
-    const body = await response.json(); assert.equal(body.freshness.state, "unavailable");
+    const response = await get(base); assert.equal(response.status, 502);
+    const body = await response.json(); assert.equal(body.error, "governance_unavailable");
     assert.equal(JSON.stringify(body).includes("hide"), false);
   });
 });
@@ -87,8 +87,8 @@ test("malformed upstream shapes become unavailable without reflecting secrets", 
 test("rejects unknown nested fields and sensitive payload fields", async () => {
   for (const field of ["unknown", "rawBytes", "signedTransaction", "secret", "token", "privateEnrollment"]) {
     await withApp({ governanceQuery: async () => ({ ...evidence, wallets: [{ ...evidence.wallets[0], [field]: "secret-value" }] }) }, async base => {
-      const response = await get(base); assert.equal(response.status, 200);
-      assert.equal((await response.json()).freshness.state, "unavailable");
+      const response = await get(base); assert.equal(response.status, 502);
+      assert.equal((await response.json()).error, "governance_unavailable");
     });
   }
 });
@@ -98,7 +98,8 @@ test("rejects upstream network mismatch and preserves additional wallet records 
     { ...evidence, network: "devnet" },
     { ...evidence, wallets: [...evidence.wallets, { address: OTHER, vaults: [] }] },
   ]) await withApp({ governanceQuery: async () => value }, async base => {
-    const body = await (await get(base)).json(); assert.equal(body.freshness.state, "unavailable");
+    const response = await get(base); assert.equal(response.status, 502);
+    const body = await response.json(); assert.equal(body.error, "governance_unavailable");
     assert.equal(JSON.stringify(body).includes(OTHER), false);
   });
 });
