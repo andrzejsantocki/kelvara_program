@@ -41,7 +41,7 @@ export function resolveKaminoRuntimeConfig(env = process.env, moduleDir = ".") {
   const cursorSecret = internalToken(env.GOVERNANCE_CURSOR_SECRET, "GOVERNANCE_CURSOR_SECRET");
   if ((env.NODE_ENV === "production" || env.HAOS === "1") && !cursorSecret) throw new TypeError("GOVERNANCE_CURSOR_SECRET required");
   if (Boolean(governanceUrl) !== Boolean(governanceToken)) throw new TypeError("governance Hub configuration incomplete");
-  if (env.KELVARA_GOVERNANCE_HUB_URL && env.KELVARA_GOVERNANCE_HUB_URL === receiptsUrl && env.KELVARA_GOVERNANCE_HUB_TOKEN !== receiptsToken) throw new TypeError("governance Hub token scope must be explicit");
+  if (env.KELVARA_GOVERNANCE_HUB_URL && env.KELVARA_GOVERNANCE_HUB_URL === receiptsUrl && env.KELVARA_GOVERNANCE_HUB_TOKEN === receiptsToken) throw new TypeError("governance Hub token scope must be explicit");
   if (Boolean(configUrl) !== Boolean(configToken) || Boolean(receiptsUrl) !== Boolean(receiptsToken)) throw new TypeError("portfolio internal dependency configuration incomplete");
   if (configToken && receiptsToken && configToken === receiptsToken) throw new TypeError("portfolio internal dependency tokens must be distinct");
   if ((env.NODE_ENV === "production" || env.HAOS === "1") && (!configUrl || !receiptsUrl || env.HOST !== "127.0.0.1")) {
