@@ -15,8 +15,10 @@ const OTHER = "5NfR5kVYqXzR8VY7H5YdN7J6uW2vQ9eN3KpL4mT6sR8";
 const PROGRAM = "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf";
 const MULTISIG = "7qipzLR9j1CvdxE1XJEFgvoyFmgBpgw5hMdHBMPcJtM";
 const HUB_TOKEN = "governance-e2e-hub-token-012345678901234567890";
+const GOVERNANCE_QUERY_TOKEN = "governance-e2e-query-token-012345678901234567890";
 const SESSION = `session-${WALLET}`;
 const HUB_OPTIONS = {
+  governanceQueryToken: GOVERNANCE_QUERY_TOKEN,
   evacuationToken: "e".repeat(40), evaluationToken: "v".repeat(40), assignmentToken: "a".repeat(40),
 };
 
@@ -50,7 +52,7 @@ async function startHub(path) {
 
 function startProgram(hubUrl) {
   const walletAuth = { authorize(value) { if (value === SESSION) return WALLET; throw new Error("authentication_required"); } };
-  return createKaminoMonitorServer({ inspector: { inspect: async () => ({}) }, walletAuth, governanceQuery: createGovernanceClient({ url: hubUrl, token: HUB_TOKEN }), governanceCursorSecret: "s".repeat(32) });
+  return createKaminoMonitorServer({ inspector: { inspect: async () => ({}) }, walletAuth, governanceQuery: createGovernanceClient({ url: hubUrl, token: GOVERNANCE_QUERY_TOKEN }), governanceCursorSecret: "s".repeat(32) });
 }
 
 async function get(base, token = SESSION, query = "network=mainnet-beta") {
